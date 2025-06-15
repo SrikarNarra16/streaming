@@ -1,4 +1,4 @@
-# AI-Powered Interactive Learning Platform
+# AI-Thinking Simulator
 
 A Next.js application that provides an interactive learning experience through AI-generated content with real-time streaming, fill-in-the-blank exercises, and contextual Q&A support.
 
