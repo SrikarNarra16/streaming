@@ -1,5 +1,10 @@
 "use client";
 
+// ---------------------------------------------------------------------------
+
+// TODO: Logging, Login, and DB
+
+// ---------------------------------------------------------------------------
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
 
