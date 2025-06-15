@@ -9,14 +9,25 @@
 // Migrate the old project db
 
 import React, { useEffect, useRef, useState } from "react";
-
 import { animate, useMotionValue } from "framer-motion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 interface ThinkingSegment {
   text: string | null;
   isBlank: boolean;
   blankAnswer: string | null;
   newPosition?: number;
+}
+
+interface ParagraphAccordion {
+  id: string;
+  position: number;
+  chatMessages: Array<{ role: "user" | "ai"; message: string }>;
 }
 
 const TYPING_INTERVAL_MS = 100;
@@ -29,7 +40,7 @@ function StreamingPage() {
 
 Let me think about the steps I need to take. First, check if val exists in P. If not, return -1 immediately. If it does exist, extract all the key-value pairs where value is equal to val. Then find the max and min of those keys. How do I get all such keys? Well, I can iterate through each item in P.items(), check if the value equals val, collect them into a list. Alternatively, maybe using a dictionary comprehension would be efficient.
 
-Once I have that list, I can compute max_key = max(keys) and min_key = min(keys). Then return (max_key - min_key). Wait, but what if there are multiple keys with the same value? That's fine because all of them will be included in the list, so both max and min would correctly find the correct values.
+Once I have that list, I can compute max_key = max(keys) and min_key = min(keys). Then return (max_key - min_k). Wait, but what if there are multiple keys with the same value? That's fine because all of them will be included in the list, so both max and min would correctly find the correct values.
 
 Testing example: identical({1:3,4:2,5:3,7:3}, 3) should return 6. Let me see—keys with value 3 are 1,5,7. Max is 7, min is 1, so the difference is 6. That's correct. Another test case could be when there are no keys with val equal to any value. Like identical({2:4}, 3)—should return -1.
 
@@ -43,7 +54,7 @@ Function identical(P, val):
 - Else, collect all keys where value equals val.
   So, create a list of keys like [k for k,v in P.items() if v == val]
 - Get max_key as the maximum of that list, min_key as the minimum.
-- Return max_key - min_key.
+- Return max_key - min_k.
 
 Wait, but what about when there are no keys with val? Well, since we already checked earlier and found val in P, that can't happen. Because if it were, then after checking, the 'else' part wouldn't be entered for that case.
 
@@ -56,13 +67,13 @@ else:
     max_k = max(keys_with_val)
     min_k = min(keys_with_val)
     return max_k - min_k
-	return -1
+    return -1
 
 But wait, since we already checked that 'val is in P' which means keys_with_val can't be empty. So the else part isn't needed.
 
-	max_k = max(keys_with_val)
-	min_k = min(keys_with_val)
-	return max_k - min_k
+    max_k = max(keys_with_val)
+    min_k = min(keys_with_val)
+    return max_k - min_k
 
 def identical(P, val):
     if val not in P:
@@ -70,12 +81,12 @@ def identical(P, val):
     if val not in P:
         return -1
     keys = BLANK([k for k, v in P.items() if v == val])
-	if val not in P:
-    	return -1
-	keys = BLANK([k for k, v in P.items() if v == val])
-	max_k = max(keys)
-	min_k = min(keys)
-	return BLANK(max_k - min_k)
+    if val not in P:
+        return -1
+    keys = BLANK([k for k, v in P.items() if v == val])
+    max_k = max(keys)
+    min_k = min(keys)
+    return BLANK(max_k - min_k)
 
 Wait, but let me think about the sample input given. The function is called with {1:3,4:2,5:3,7:3}, and val is 3. The code would extract keys [1,5,7], compute BLANK(6), which matches the example. So that's correct.
 
@@ -95,9 +106,19 @@ Another test case: identical({}, 0). Should return -1 because val is not present
   const [isPreparingForBlank, setIsPreparingForBlank] = useState(false);
 
   //  paragraph feedback
-  const [isWaitingForParagraphFeedback, setIsWaitingForParagraphFeedback] = useState(false);
+  const [isWaitingForParagraphFeedback, setIsWaitingForParagraphFeedback] =
+    useState(false);
   const [paragraphFeedbackMessage, setParagraphFeedbackMessage] = useState("");
   const [currentParagraphEnd, setCurrentParagraphEnd] = useState(0);
+
+  // Store all accordions that have been created
+  const [paragraphAccordions, setParagraphAccordions] = useState<
+    ParagraphAccordion[]
+  >([]);
+  const [currentAccordionId, setCurrentAccordionId] = useState<string | null>(
+    null
+  );
+  const [currentChatInput, setCurrentChatInput] = useState("");
 
   useEffect(() => {
     if (!isTyping) {
@@ -116,13 +137,16 @@ Another test case: identical({}, 0). Should return -1 because val is not present
 
       if (segment.text) {
         console.log(`Revealing text: ${segment.text}`);
-        
+
         // Check if we've reached the end of a paragraph in this segment
-        const paragraphBreakIndex = segment.text.indexOf('\n\n');
-        
+        const paragraphBreakIndex = segment.text.indexOf("\n\n");
+
         if (paragraphBreakIndex !== -1) {
           // Stop at the paragraph break
-          const textUpToParagraph = segment.text.slice(0, paragraphBreakIndex + 2); // +2 to include the new line characters
+          const textUpToParagraph = segment.text.slice(
+            0,
+            paragraphBreakIndex + 2
+          ); // +2 to include the new line characters
           setRevealedText((prev) => prev + textUpToParagraph);
           setCurrentPosition(currentPosition + textUpToParagraph.length);
           setIsTyping(false);
@@ -158,24 +182,83 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     setIsWaitingForParagraphFeedback(false);
     setParagraphFeedbackMessage("");
     setCurrentParagraphEnd(0);
+    setParagraphAccordions([]);
+    setCurrentAccordionId(null);
+    setCurrentChatInput("");
   };
 
-  const handleParagraphFeedback = (thumbsUp: boolean) => {
-    if (thumbsUp) {
+  const handleParagraphFeedback = (understood: boolean) => {
+    if (understood) {
       setParagraphFeedbackMessage("Great! Continuing...");
       setTimeout(() => {
         setParagraphFeedbackMessage("");
         setIsWaitingForParagraphFeedback(false);
+        setCurrentAccordionId(null);
         setIsTyping(true); // Continue typing
       }, 1000);
     } else {
-      setParagraphFeedbackMessage("Let me try to explain differently...");
-      setTimeout(() => {
-        setParagraphFeedbackMessage("");
-        setIsWaitingForParagraphFeedback(false);
-        setIsTyping(true); // Continue typing for now
-      }, 2000);
+      // Create a new accordion for this paragraph
+      const accordionId = `${currentPosition}`;
+      const newAccordion: ParagraphAccordion = {
+        id: accordionId,
+        position: currentPosition,
+        chatMessages: [],
+      };
+      setParagraphAccordions((prev) => [...prev, newAccordion]);
+      setCurrentAccordionId(accordionId);
+      // Don't show feedback message immediately, let user interact with accordion first
     }
+  };
+
+  const handleChatSubmit = (accordionId: string) => {
+    if (!currentChatInput.trim()) return;
+
+    // Update the specific accordion's chat messages
+    setParagraphAccordions((prev) =>
+      prev.map((accordion) =>
+        accordion.id === accordionId
+          ? {
+              ...accordion,
+              chatMessages: [
+                ...accordion.chatMessages,
+                { role: "user", message: currentChatInput },
+              ],
+            }
+          : accordion
+      )
+    );
+
+    // Simulate AI response
+    setTimeout(() => {
+      setParagraphAccordions((prev) =>
+        prev.map((accordion) =>
+          accordion.id === accordionId
+            ? {
+                ...accordion,
+                chatMessages: [
+                  ...accordion.chatMessages,
+                  {
+                    role: "ai",
+                    message: `I understand your question about "${currentChatInput}". Let me clarify that part of the explanation...`,
+                  },
+                ],
+              }
+            : accordion
+        )
+      );
+    }, 1000);
+
+    setCurrentChatInput("");
+  };
+
+  const handleContinueAfterChat = () => {
+    setParagraphFeedbackMessage("Thanks for the questions! Continuing...");
+    setTimeout(() => {
+      setParagraphFeedbackMessage("");
+      setIsWaitingForParagraphFeedback(false);
+      setCurrentAccordionId(null);
+      setIsTyping(true);
+    }, 1000);
   };
 
   const handlePlayPause = () => {
@@ -326,6 +409,93 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     handleAnimationComplete // Pass our new handler
   );
 
+  // Function to render accordions in the revealed text
+  const renderTextWithAccordions = (text: string) => {
+    if (paragraphAccordions.length === 0) {
+      return text;
+    }
+
+    // Filter out the currently active accordion to prevent duplication
+    const completedAccordions = paragraphAccordions.filter(
+      (accordion) => accordion.id !== currentAccordionId
+    );
+
+    if (completedAccordions.length === 0) {
+      return text;
+    }
+
+    // Sort accordions by position
+    const sortedAccordions = [...completedAccordions].sort(
+      (a, b) => a.position - b.position
+    );
+
+    let result = [];
+    let lastIndex = 0;
+
+    sortedAccordions.forEach((accordion, index) => {
+      // Add text before this accordion
+      if (accordion.position > lastIndex) {
+        result.push(text.slice(lastIndex, accordion.position));
+      }
+
+      // Add the accordion (read-only version)
+      result.push(
+        <div key={accordion.id} className="my-4">
+          <Accordion type="single" collapsible className="w-full">
+            <AccordionItem
+              value="chat"
+              className="border-gray-600 bg-gray-800 rounded-lg"
+            >
+              <AccordionTrigger className="text-yellow-300 hover:text-yellow-200 px-4">
+                Questions about this section
+              </AccordionTrigger>
+              <AccordionContent className="space-y-4 px-4">
+                {/* Chat messages - read only */}
+                <div className="max-h-40 overflow-y-auto space-y-2 bg-gray-900 p-3 rounded">
+                  {accordion.chatMessages.length === 0 ? (
+                    <div className="text-gray-400 text-sm">
+                      No questions were asked about this section.
+                    </div>
+                  ) : (
+                    accordion.chatMessages.map((msg, msgIndex) => (
+                      <div
+                        key={msgIndex}
+                        className={`text-sm ${
+                          msg.role === "user"
+                            ? "text-blue-300"
+                            : "text-green-300"
+                        }`}
+                      >
+                        <span className="font-semibold">
+                          {msg.role === "user" ? "You:" : "AI:"}
+                        </span>{" "}
+                        {msg.message}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* No chat input for completed accordions */}
+                <div className="text-gray-500 text-sm italic">
+                  This conversation is now read-only.
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
+      );
+
+      lastIndex = accordion.position;
+    });
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      result.push(text.slice(lastIndex));
+    }
+
+    return result;
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-8">
       <h1 className="text-3xl font-bold mb-6">AI Thinking</h1>
@@ -348,29 +518,115 @@ Another test case: identical({}, 0). Should return -1 because val is not present
         </button>
       </div>
       <div className="font-sans text-lg mt-6">
-        <p className="whitespace-pre-wrap">
-          {animatedRevealedText}
-          
-          {/* Paragraph feedback section */}
+        <div className="whitespace-pre-wrap">
+          {renderTextWithAccordions(animatedRevealedText)}
+
+          {/* Current paragraph feedback section */}
           {isWaitingForParagraphFeedback && (
             <span className="block mt-4 p-4 bg-gray-800 rounded-lg border border-gray-600">
               <div className="text-blue-300 mb-3">Am I making sense?</div>
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => handleParagraphFeedback(true)}
-                  className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-                >
-                  <span className="text-xl mr-2">👍</span>
-                  <span>Yes, continue</span>
-                </button>
-                <button
-                  onClick={() => handleParagraphFeedback(false)}
-                  className="flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-                >
-                  <span className="text-xl mr-2">👎</span>
-                  <span>Please clarify</span>
-                </button>
-              </div>
+
+              {/* Only show buttons if no current accordion is active */}
+              {!currentAccordionId && (
+                <div className="flex items-center space-x-4 mb-4">
+                  <button
+                    onClick={() => handleParagraphFeedback(true)}
+                    className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                  >
+                    <span className="text-xl mr-2">👍</span>
+                    <span>Yes, continue</span>
+                  </button>
+                  <button
+                    onClick={() => handleParagraphFeedback(false)}
+                    className="flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors"
+                  >
+                    <span className="text-xl mr-2">❓</span>
+                    <span>I don't understand</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Current Chat Accordion - only show if currentAccordionId exists */}
+              {currentAccordionId && (
+                <div className="mb-4">
+                  <Accordion
+                    type="single"
+                    collapsible
+                    defaultValue="chat"
+                    className="w-full"
+                  >
+                    <AccordionItem value="chat" className="border-gray-600">
+                      <AccordionTrigger className="text-yellow-300 hover:text-yellow-200">
+                        Ask questions about this explanation
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-4">
+                        {/* Chat messages */}
+                        <div className="max-h-40 overflow-y-auto space-y-2 bg-gray-900 p-3 rounded">
+                          {paragraphAccordions.find(
+                            (acc) => acc.id === currentAccordionId
+                          )?.chatMessages.length === 0 ? (
+                            <div className="text-gray-400 text-sm">
+                              Ask me anything about this explanation...
+                            </div>
+                          ) : (
+                            paragraphAccordions
+                              .find((acc) => acc.id === currentAccordionId)
+                              ?.chatMessages.map((msg, index) => (
+                                <div
+                                  key={index}
+                                  className={`text-sm ${
+                                    msg.role === "user"
+                                      ? "text-blue-300"
+                                      : "text-green-300"
+                                  }`}
+                                >
+                                  <span className="font-semibold">
+                                    {msg.role === "user" ? "You:" : "AI:"}
+                                  </span>{" "}
+                                  {msg.message}
+                                </div>
+                              ))
+                          )}
+                        </div>
+
+                        {/* Chat input */}
+                        <div className="flex space-x-2">
+                          <input
+                            type="text"
+                            value={currentChatInput}
+                            onChange={(e) =>
+                              setCurrentChatInput(e.target.value)
+                            }
+                            onKeyPress={(e) =>
+                              e.key === "Enter" &&
+                              handleChatSubmit(currentAccordionId)
+                            }
+                            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Type your question..."
+                          />
+                          <button
+                            onClick={() => handleChatSubmit(currentAccordionId)}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                          >
+                            Send
+                          </button>
+                        </div>
+
+                        {/* Continue button */}
+                        <div className="flex justify-end">
+                          <button
+                            onClick={handleContinueAfterChat}
+                            className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded transition-colors"
+                          >
+                            Continue with explanation
+                          </button>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                </div>
+              )}
+
               {paragraphFeedbackMessage && (
                 <div className="mt-3 text-yellow-300 font-medium">
                   {paragraphFeedbackMessage}
@@ -411,7 +667,7 @@ Another test case: identical({}, 0). Should return -1 because val is not present
               )}
             </span>
           )}
-        </p>
+        </div>
       </div>
     </div>
   );
