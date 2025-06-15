@@ -8,20 +8,15 @@
 
 // Migrate the old project db
 
-
 // ------------------------------------------------------------------------------------------------
 
 // Does not keep memory of previous conversations in chat accordians
 
-
-
 // ------------------------------------------------------------------------------------------------
-
-
 
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown from 'react-markdown';
 import {
   Accordion,
   AccordionContent,
@@ -55,17 +50,17 @@ Let me think about the steps I need to take. First, check if val exists in P. If
 
 Once I have that list, I can compute max_key = max(keys) and min_key = min(keys). Then return (max_key - min_k). Wait, but what if there are multiple keys with the same value? That's fine because all of them will be included in the list, so both max and min would correctly find the correct values.
 
-Testing example: identical({1:3,4:2,5:3,7:3}, 3) should return 6. Let me see—keys with value 3 are 1,5,7. Max is 7, min is 1, so the difference is 6. That's correct. Another test case could be when there are no keys with val equal to any value. Like identical({2:4}, 3)—should return -1.
+Testing example: \`identical({1:3,4:2,5:3,7:3}, 3)\` should return 6. Let me see—keys with value 3 are 1,5,7. Max is 7, min is 1, so the difference is 6. That's correct. Another test case could be when there are no keys with val equal to any value. Like \`identical({2:4}, 3)\`—should return -1.
 
 What about an empty dictionary? If P is empty and val is found in it (which it can't because the dictionary has no keys), but that's not possible since P would have no keys anyway, so returning -1 makes sense.
 
 Let me outline the steps:
 
-Function identical(P, val):
+**Function identical(P, val):**
 - Check if val is in P. How? Using 'in' keyword.
   If not present: return -1
 - Else, collect all keys where value equals val.
-  So, create a list of keys like [k for k,v in P.items() if v == val]
+  So, create a list of keys like \`[k for k,v in P.items() if v == val]\`
 - Get max_key as the maximum of that list, min_key as the minimum.
 - Return max_key - min_k.
 
@@ -73,6 +68,7 @@ Wait, but what about when there are no keys with val? Well, since we already che
 
 So perhaps more precisely:
 
+\`\`\`python
 keys_with_val = [k for k, v in P.items() if v == val]
 if not keys_with_val:
     return -1
@@ -80,14 +76,18 @@ else:
     max_k = max(keys_with_val)
     min_k = min(keys_with_val)
     return max_k - min_k
-    return -1
+    return -1 
+\`\`\`
 
 But wait, since we already checked that 'val is in P' which means keys_with_val can't be empty. So the else part isn't needed.
 
-    max_k = max(keys_with_val)
-    min_k = min(keys_with_val)
-    return max_k - min_k
+\`\`\`python
+max_k = max(keys_with_val)
+min_k = min(keys_with_val)
+return max_k - min_k
+\`\`\`
 
+\`\`\`python
 def identical(P, val):
     if val not in P:
         return -1
@@ -100,10 +100,11 @@ def identical(P, val):
     max_k = max(keys)
     min_k = min(keys)
     return BLANK(max_k - min_k)
+\`\`\`
 
-Wait, but let me think about the sample input given. The function is called with {1:3,4:2,5:3,7:3}, and val is 3. The code would extract keys [1,5,7], compute BLANK(6), which matches the example. So that's correct.
+Wait, but let me think about the sample input given. The function is called with \`{1:3,4:2,5:3,7:3}\`, and val is 3. The code would extract keys \`[1,5,7]\`, compute BLANK(6), which matches the example. So that's correct.
 
-Another test case: identical({}, 0). Should return -1 because val is not present. What if all keys have the same value, say {2:5,3:5}. Val is 5. The keys are [2,3], difference is BLANK(1). Yes, that's correct. I think this should cover all cases`;
+Another test case: \`identical({}, 0)\`. Should return -1 because val is not present. What if all keys have the same value, say \`{2:5,3:5}\`. Val is 5. The keys are \`[2,3]\`, difference is BLANK(1). Yes, that's correct. I think this should cover all cases`;
 
   const [currentPosition, setCurrentPosition] = useState(0);
   const [revealedText, setRevealedText] = useState("");
@@ -138,7 +139,7 @@ Another test case: identical({}, 0). Should return -1 because val is not present
   const getCurrentParagraphContext = (): string => {
     // Return ALL the content up to the current position for better context
     const fullContext = aiText.slice(0, currentPosition).trim();
-    
+
     console.log("Generated context:", fullContext); // Add this for debugging
     return fullContext || "No context available"; // Fallback if empty
   };
@@ -266,10 +267,10 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     } else {
       // Create a new accordion for this paragraph
       const accordionId = `${currentPosition}`;
-      
+
       // Get ALL the content up to the current position as context
       const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
-      
+
       console.log("Storing full context:", fullContextUpToNow); // Debug log
 
       const newAccordion: ParagraphAccordion = {
@@ -293,12 +294,16 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     // Find the accordion to get context - prioritize stored context
     const accordion = paragraphAccordions.find((acc) => acc.id === accordionId);
     let context = accordion?.paragraphContext;
-    
+
     // If no stored context or it's empty, get current context
-    if (!context || context.trim() === "" || context === "Previous explanation content") {
+    if (
+      !context ||
+      context.trim() === "" ||
+      context === "Previous explanation content"
+    ) {
       context = getCurrentParagraphContext();
     }
-    
+
     console.log("Using context for chat:", context.slice(0, 200) + "..."); // Debug log (first 200 chars)
 
     // Add user message immediately
@@ -519,7 +524,49 @@ Another test case: identical({}, 0). Should return -1 because val is not present
   // Function to render accordions in the revealed text
   const renderTextWithAccordions = (text: string) => {
     if (paragraphAccordions.length === 0) {
-      return text;
+      return (
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <div className="mb-4">{children}</div>,
+            code: ({ children }) => (
+              <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
+                {children}
+              </code>
+            ),
+            pre: ({ children }) => (
+              <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                <code className="text-green-300 font-mono text-sm">{children}</code>
+              </pre>
+            ),
+            ul: ({ children }) => (
+              <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
+            ),
+            li: ({ children }) => (
+              <li className="mb-1">{children}</li>
+            ),
+            strong: ({ children }) => (
+              <strong className="font-bold text-white">{children}</strong>
+            ),
+            em: ({ children }) => (
+              <em className="italic text-gray-200">{children}</em>
+            ),
+            h1: ({ children }) => (
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+            ),
+            h2: ({ children }) => (
+              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+            ),
+            h3: ({ children }) => (
+              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      );
     }
 
     // Filter out the currently active accordion to prevent duplication
@@ -528,7 +575,49 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     );
 
     if (completedAccordions.length === 0) {
-      return text;
+      return (
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => <div className="mb-4">{children}</div>,
+            code: ({ children }) => (
+              <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
+                {children}
+              </code>
+            ),
+            pre: ({ children }) => (
+              <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                <code className="text-green-300 font-mono text-sm">{children}</code>
+              </pre>
+            ),
+            ul: ({ children }) => (
+              <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
+            ),
+            li: ({ children }) => (
+              <li className="mb-1">{children}</li>
+            ),
+            strong: ({ children }) => (
+              <strong className="font-bold text-white">{children}</strong>
+            ),
+            em: ({ children }) => (
+              <em className="italic text-gray-200">{children}</em>
+            ),
+            h1: ({ children }) => (
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+            ),
+            h2: ({ children }) => (
+              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+            ),
+            h3: ({ children }) => (
+              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      );
     }
 
     // Sort accordions by position
@@ -542,7 +631,51 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     sortedAccordions.forEach((accordion, index) => {
       // Add text before this accordion
       if (accordion.position > lastIndex) {
-        result.push(text.slice(lastIndex, accordion.position));
+        const textChunk = text.slice(lastIndex, accordion.position);
+        result.push(
+          <ReactMarkdown
+            key={`text-${lastIndex}`}
+            components={{
+              p: ({ children }) => <div className="mb-4">{children}</div>,
+              code: ({ children }) => (
+                <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
+                  {children}
+                </code>
+              ),
+              pre: ({ children }) => (
+                <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                  <code className="text-green-300 font-mono text-sm">{children}</code>
+                </pre>
+              ),
+              ul: ({ children }) => (
+                <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>
+              ),
+              ol: ({ children }) => (
+                <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
+              ),
+              li: ({ children }) => (
+                <li className="mb-1">{children}</li>
+              ),
+              strong: ({ children }) => (
+                <strong className="font-bold text-white">{children}</strong>
+              ),
+              em: ({ children }) => (
+                <em className="italic text-gray-200">{children}</em>
+              ),
+              h1: ({ children }) => (
+                <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+              ),
+              h2: ({ children }) => (
+                <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+              ),
+              h3: ({ children }) => (
+                <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+              ),
+            }}
+          >
+            {textChunk}
+          </ReactMarkdown>
+        );
       }
 
       // Add the accordion (read-only version)
@@ -592,16 +725,24 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                                   </pre>
                                 ),
                                 ul: ({ children }) => (
-                                  <ul className="list-disc list-inside mt-1">{children}</ul>
+                                  <ul className="list-disc list-inside mt-1">
+                                    {children}
+                                  </ul>
                                 ),
                                 ol: ({ children }) => (
-                                  <ol className="list-decimal list-inside mt-1">{children}</ol>
+                                  <ol className="list-decimal list-inside mt-1">
+                                    {children}
+                                  </ol>
                                 ),
                                 strong: ({ children }) => (
-                                  <strong className="font-bold text-white">{children}</strong>
+                                  <strong className="font-bold text-white">
+                                    {children}
+                                  </strong>
                                 ),
                                 em: ({ children }) => (
-                                  <em className="italic text-gray-200">{children}</em>
+                                  <em className="italic text-gray-200">
+                                    {children}
+                                  </em>
                                 ),
                               }}
                             >
@@ -631,7 +772,51 @@ Another test case: identical({}, 0). Should return -1 because val is not present
 
     // Add remaining text
     if (lastIndex < text.length) {
-      result.push(text.slice(lastIndex));
+      const remainingText = text.slice(lastIndex);
+      result.push(
+        <ReactMarkdown
+          key={`text-${lastIndex}`}
+          components={{
+            p: ({ children }) => <div className="mb-4">{children}</div>,
+            code: ({ children }) => (
+              <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
+                {children}
+              </code>
+            ),
+            pre: ({ children }) => (
+              <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                <code className="text-green-300 font-mono text-sm">{children}</code>
+              </pre>
+            ),
+            ul: ({ children }) => (
+              <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
+            ),
+            li: ({ children }) => (
+              <li className="mb-1">{children}</li>
+            ),
+            strong: ({ children }) => (
+              <strong className="font-bold text-white">{children}</strong>
+            ),
+            em: ({ children }) => (
+              <em className="italic text-gray-200">{children}</em>
+            ),
+            h1: ({ children }) => (
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+            ),
+            h2: ({ children }) => (
+              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+            ),
+            h3: ({ children }) => (
+              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+            ),
+          }}
+        >
+          {remainingText}
+        </ReactMarkdown>
+      );
     }
 
     return result;
@@ -659,9 +844,9 @@ Another test case: identical({}, 0). Should return -1 because val is not present
         </button>
       </div>
       <div className="font-sans text-lg mt-6">
-        <div className="whitespace-pre-wrap">
+        <div>
           {renderTextWithAccordions(animatedRevealedText)}
-
+          
           {/* Current paragraph feedback section */}
           {isWaitingForParagraphFeedback && (
             <span className="block mt-4 p-4 bg-gray-800 rounded-lg border border-gray-600">
@@ -728,7 +913,9 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                                     <div className="inline">
                                       <ReactMarkdown
                                         components={{
-                                          p: ({ children }) => <span>{children}</span>,
+                                          p: ({ children }) => (
+                                            <span>{children}</span>
+                                          ),
                                           code: ({ children }) => (
                                             <code className="bg-gray-700 px-1 rounded text-yellow-300">
                                               {children}
@@ -740,16 +927,24 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                                             </pre>
                                           ),
                                           ul: ({ children }) => (
-                                            <ul className="list-disc list-inside mt-1">{children}</ul>
+                                            <ul className="list-disc list-inside mt-1">
+                                              {children}
+                                            </ul>
                                           ),
                                           ol: ({ children }) => (
-                                            <ol className="list-decimal list-inside mt-1">{children}</ol>
+                                            <ol className="list-decimal list-inside mt-1">
+                                              {children}
+                                            </ol>
                                           ),
                                           strong: ({ children }) => (
-                                            <strong className="font-bold text-white">{children}</strong>
+                                            <strong className="font-bold text-white">
+                                              {children}
+                                            </strong>
                                           ),
                                           em: ({ children }) => (
-                                            <em className="italic text-gray-200">{children}</em>
+                                            <em className="italic text-gray-200">
+                                              {children}
+                                            </em>
                                           ),
                                         }}
                                       >
@@ -797,7 +992,7 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                             }
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isLoadingResponse ? "..." : "Send"}
+                            Send
                           </button>
                         </div>
 
