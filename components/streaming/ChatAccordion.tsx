@@ -45,7 +45,9 @@ export function ChatAccordion({
           }`}
         >
           <AccordionTrigger className="text-yellow-300 hover:text-yellow-200 px-4">
-            {isReadOnly ? "Questions about this section" : "Ask questions about this explanation"}
+            {isReadOnly
+              ? "Questions about this section"
+              : "Ask questions about this explanation"}
           </AccordionTrigger>
           <AccordionContent className="space-y-4 px-4">
             {/* Chat messages */}

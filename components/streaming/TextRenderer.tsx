@@ -23,9 +23,7 @@ export function TextRenderer({
   currentAccordionId,
 }: TextRendererProps) {
   const markdownComponents = {
-    p: ({ children }) => (
-      <div className="mb-4 leading-relaxed">{children}</div>
-    ),
+    p: ({ children }) => <div className="mb-4 leading-relaxed">{children}</div>,
     code: ({ children }) => (
       <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
         {children}
@@ -73,7 +71,9 @@ export function TextRenderer({
   };
 
   if (paragraphAccordions.length === 0) {
-    return <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>;
+    return (
+      <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>
+    );
   }
 
   // Filter out the currently active accordion to prevent duplication
@@ -82,7 +82,9 @@ export function TextRenderer({
   );
 
   if (completedAccordions.length === 0) {
-    return <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>;
+    return (
+      <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>
+    );
   }
 
   // Sort accordions by position
@@ -129,10 +131,7 @@ export function TextRenderer({
   if (lastIndex < text.length) {
     const remainingText = text.slice(lastIndex);
     result.push(
-      <ReactMarkdown
-        key={`text-${lastIndex}`}
-        components={markdownComponents}
-      >
+      <ReactMarkdown key={`text-${lastIndex}`} components={markdownComponents}>
         {remainingText}
       </ReactMarkdown>
     );
