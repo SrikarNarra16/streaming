@@ -28,6 +28,7 @@ interface ParagraphAccordion {
   id: string;
   position: number;
   chatMessages: Array<{ role: "user" | "ai"; message: string }>;
+  paragraphContext: string; // Store the paragraph content for context
 }
 
 const TYPING_INTERVAL_MS = 100;
@@ -119,6 +120,59 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     null
   );
   const [currentChatInput, setCurrentChatInput] = useState("");
+  const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+
+  // Function to get the current paragraph context
+  const getCurrentParagraphContext = (): string => {
+    // Return ALL the content up to the current position for better context
+    const fullContext = aiText.slice(0, currentPosition).trim();
+    
+    console.log("Generated context:", fullContext); // Add this for debugging
+    return fullContext || "No context available"; // Fallback if empty
+  };
+
+  // Function to call the API for chat responses
+  const getChatResponse = async (
+    userMessage: string,
+    context: string
+  ): Promise<string> => {
+    console.log("Context for chat:", context);
+
+    // Add validation for empty context
+    if (!context || context.trim() === "") {
+      console.warn("Empty context provided, using fallback");
+      context = "General programming question";
+    }
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prompt: userMessage,
+          context: context,
+          type: "explanation_chat",
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      return data.content;
+    } catch (error) {
+      console.error("Error getting chat response:", error);
+      return `Sorry, I encountered an error: ${error.message}. Please try asking your question again.`;
+    }
+  };
 
   useEffect(() => {
     if (!isTyping) {
@@ -185,6 +239,7 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     setParagraphAccordions([]);
     setCurrentAccordionId(null);
     setCurrentChatInput("");
+    setIsLoadingResponse(false);
   };
 
   const handleParagraphFeedback = (understood: boolean) => {
@@ -199,21 +254,42 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     } else {
       // Create a new accordion for this paragraph
       const accordionId = `${currentPosition}`;
+      
+      // Get ALL the content up to the current position as context
+      const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
+      
+      console.log("Storing full context:", fullContextUpToNow); // Debug log
+
       const newAccordion: ParagraphAccordion = {
         id: accordionId,
         position: currentPosition,
         chatMessages: [],
+        paragraphContext: fullContextUpToNow || "No previous content available",
       };
       setParagraphAccordions((prev) => [...prev, newAccordion]);
       setCurrentAccordionId(accordionId);
-      // Don't show feedback message immediately, let user interact with accordion first
     }
   };
 
-  const handleChatSubmit = (accordionId: string) => {
-    if (!currentChatInput.trim()) return;
+  const handleChatSubmit = async (accordionId: string) => {
+    if (!currentChatInput.trim() || isLoadingResponse) return;
 
-    // Update the specific accordion's chat messages
+    const userMessage = currentChatInput;
+    setCurrentChatInput(""); // Clear input immediately
+    setIsLoadingResponse(true);
+
+    // Find the accordion to get context - prioritize stored context
+    const accordion = paragraphAccordions.find((acc) => acc.id === accordionId);
+    let context = accordion?.paragraphContext;
+    
+    // If no stored context or it's empty, get current context
+    if (!context || context.trim() === "" || context === "Previous explanation content") {
+      context = getCurrentParagraphContext();
+    }
+    
+    console.log("Using context for chat:", context.slice(0, 200) + "..."); // Debug log (first 200 chars)
+
+    // Add user message immediately
     setParagraphAccordions((prev) =>
       prev.map((accordion) =>
         accordion.id === accordionId
@@ -221,15 +297,33 @@ Another test case: identical({}, 0). Should return -1 because val is not present
               ...accordion,
               chatMessages: [
                 ...accordion.chatMessages,
-                { role: "user", message: currentChatInput },
+                { role: "user", message: userMessage },
               ],
             }
           : accordion
       )
     );
 
-    // Simulate AI response
-    setTimeout(() => {
+    // Get AI response
+    try {
+      const aiResponse = await getChatResponse(userMessage, context);
+
+      // Add AI response
+      setParagraphAccordions((prev) =>
+        prev.map((accordion) =>
+          accordion.id === accordionId
+            ? {
+                ...accordion,
+                chatMessages: [
+                  ...accordion.chatMessages,
+                  { role: "ai", message: aiResponse },
+                ],
+              }
+            : accordion
+        )
+      );
+    } catch (error) {
+      // Add error message as AI response
       setParagraphAccordions((prev) =>
         prev.map((accordion) =>
           accordion.id === accordionId
@@ -239,16 +333,17 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                   ...accordion.chatMessages,
                   {
                     role: "ai",
-                    message: `I understand your question about "${currentChatInput}". Let me clarify that part of the explanation...`,
+                    message:
+                      "Sorry, I couldn't process your question right now. Please try again.",
                   },
                 ],
               }
             : accordion
         )
       );
-    }, 1000);
-
-    setCurrentChatInput("");
+    } finally {
+      setIsLoadingResponse(false);
+    }
   };
 
   const handleContinueAfterChat = () => {
@@ -587,6 +682,11 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                                 </div>
                               ))
                           )}
+                          {isLoadingResponse && (
+                            <div className="text-gray-400 text-sm italic">
+                              AI is thinking...
+                            </div>
+                          )}
                         </div>
 
                         {/* Chat input */}
@@ -599,16 +699,25 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                             }
                             onKeyPress={(e) =>
                               e.key === "Enter" &&
+                              !isLoadingResponse &&
                               handleChatSubmit(currentAccordionId)
                             }
-                            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Type your question..."
+                            disabled={isLoadingResponse}
+                            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                            placeholder={
+                              isLoadingResponse
+                                ? "AI is responding..."
+                                : "Type your question..."
+                            }
                           />
                           <button
                             onClick={() => handleChatSubmit(currentAccordionId)}
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
+                            disabled={
+                              isLoadingResponse || !currentChatInput.trim()
+                            }
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            Send
+                            {isLoadingResponse ? "..." : "Send"}
                           </button>
                         </div>
 
