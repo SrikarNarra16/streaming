@@ -72,14 +72,6 @@ components/
     └── accordion.tsx  # Base accordion component
 ```
 
-### Configuration Files
-
-- **Package management**: [`package.json`](package.json), [`pnpm-lock.yaml`](pnpm-lock.yaml)
-- **TypeScript**: [`tsconfig.json`](tsconfig.json)
-- **Next.js**: [`next.config.ts`](next.config.ts)
-- **Styling**: [`postcss.config.mjs`](postcss.config.mjs), [`components.json`](components.json)
-- **Linting**: [`eslint.config.mjs`](eslint.config.mjs)
-
 ## 🔧 Key Implementation Details
 
 ### Main Logic Location
@@ -122,51 +114,6 @@ const FEEDBACK_DURATION_MS = 1500; // Feedback display time
 
 ## 🔍 Development Notes
 
-### State Management
-
-The application uses React's built-in state with coordination between:
-
-- Text streaming state
-- Blank interaction state
-- Chat/accordion state
-- Performance tracking state
-
-### Current Limitations
-
-- No user authentication or persistent storage
-- Chat accordions don't maintain conversation history
-- Content is hardcoded in the component (no CMS)
-
-## 🐛 Troubleshooting
-
-**API not working**: Check `DEEPSEEK_API_KEY` in `.env.local`
-
-**Streaming stops unexpectedly**: Look for malformed `BLANK()` placeholders in console
-
-**Animation issues**: Clear browser cache and restart dev server
-
-**Console errors**: Check browser dev tools - the app logs context and debugging info
-
-## 📋 Future Improvements
-
-### High Priority
-
-- [ ] User authentication & progress persistence
-- [ ] Database integration for content and user data
-- [ ] Content management system
-
-### Medium Priority
-
-- [ ] Mobile responsiveness improvements
-- [ ] Analytics dashboard for educators
-- [ ] Accessibility enhancements
-
-### Low Priority
-
-- [ ] Multi-language support
-- [ ] Theme customization
-- [ ] Export/print functionality
-
 ---
 
-**Note**: This is an internal FLAME internship project. The core streaming and interaction system is functional and ready for production use with the improvements listed above.
+**Note**: This project was developed by [@aahalani](Avval Halani). Please feel free to contact me for any questions.
