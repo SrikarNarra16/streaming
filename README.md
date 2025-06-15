@@ -116,4 +116,4 @@ const FEEDBACK_DURATION_MS = 1500; // Feedback display time
 
 ---
 
-**Note**: This project was developed by [@aahalani](Avval Halani). Please feel free to contact me for any questions.
+**Note**: This project was developed by [Avval Halani](https://github.com/aahalani). Please feel free to contact me for any questions.
