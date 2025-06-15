@@ -8,8 +8,20 @@
 
 // Migrate the old project db
 
+
+// ------------------------------------------------------------------------------------------------
+
+// Does not keep memory of previous conversations in chat accordians
+
+
+
+// ------------------------------------------------------------------------------------------------
+
+
+
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import {
   Accordion,
   AccordionContent,
@@ -564,7 +576,41 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                         <span className="font-semibold">
                           {msg.role === "user" ? "You:" : "AI:"}
                         </span>{" "}
-                        {msg.message}
+                        {msg.role === "ai" ? (
+                          <div className="inline">
+                            <ReactMarkdown
+                              components={{
+                                p: ({ children }) => <span>{children}</span>,
+                                code: ({ children }) => (
+                                  <code className="bg-gray-700 px-1 rounded text-yellow-300">
+                                    {children}
+                                  </code>
+                                ),
+                                pre: ({ children }) => (
+                                  <pre className="bg-gray-700 p-2 rounded mt-1 overflow-x-auto">
+                                    {children}
+                                  </pre>
+                                ),
+                                ul: ({ children }) => (
+                                  <ul className="list-disc list-inside mt-1">{children}</ul>
+                                ),
+                                ol: ({ children }) => (
+                                  <ol className="list-decimal list-inside mt-1">{children}</ol>
+                                ),
+                                strong: ({ children }) => (
+                                  <strong className="font-bold text-white">{children}</strong>
+                                ),
+                                em: ({ children }) => (
+                                  <em className="italic text-gray-200">{children}</em>
+                                ),
+                              }}
+                            >
+                              {msg.message}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          msg.message
+                        )}
                       </div>
                     ))
                   )}
@@ -678,7 +724,41 @@ Another test case: identical({}, 0). Should return -1 because val is not present
                                   <span className="font-semibold">
                                     {msg.role === "user" ? "You:" : "AI:"}
                                   </span>{" "}
-                                  {msg.message}
+                                  {msg.role === "ai" ? (
+                                    <div className="inline">
+                                      <ReactMarkdown
+                                        components={{
+                                          p: ({ children }) => <span>{children}</span>,
+                                          code: ({ children }) => (
+                                            <code className="bg-gray-700 px-1 rounded text-yellow-300">
+                                              {children}
+                                            </code>
+                                          ),
+                                          pre: ({ children }) => (
+                                            <pre className="bg-gray-700 p-2 rounded mt-1 overflow-x-auto">
+                                              {children}
+                                            </pre>
+                                          ),
+                                          ul: ({ children }) => (
+                                            <ul className="list-disc list-inside mt-1">{children}</ul>
+                                          ),
+                                          ol: ({ children }) => (
+                                            <ol className="list-decimal list-inside mt-1">{children}</ol>
+                                          ),
+                                          strong: ({ children }) => (
+                                            <strong className="font-bold text-white">{children}</strong>
+                                          ),
+                                          em: ({ children }) => (
+                                            <em className="italic text-gray-200">{children}</em>
+                                          ),
+                                        }}
+                                      >
+                                        {msg.message}
+                                      </ReactMarkdown>
+                                    </div>
+                                  ) : (
+                                    msg.message
+                                  )}
                                 </div>
                               ))
                           )}
