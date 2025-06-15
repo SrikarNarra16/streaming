@@ -1,22 +1,23 @@
 "use client";
 
-// TODO: Whenever a new line ask user to continue typing
-// For users answers, keep them and show to user if right or wrong
-// Am I making sense? Etc after each blank, if they dont understand, they can ask questions Add an accordian for that
-// Format code also to look like code, not just text
-// Logging and Login
+// TODO: Whenever a new line ask user to continue typing (DONE)
+// For users answers, keep them and show to user if right or wrong (DONE)
+// Am I making sense? Etc after each blank, if they dont understand, they can ask questions Add an accordian for that (DONE)
+// Format code also to look like code, not just text (DONE)
+// Logging and Login (LEFT)
 
 // Migrate the old project db
 
 // ------------------------------------------------------------------------------------------------
 
 // Does not keep memory of previous conversations in chat accordians
+// Added blank response summary
 
 // ------------------------------------------------------------------------------------------------
 
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown from "react-markdown";
 import {
   Accordion,
   AccordionContent,
@@ -36,6 +37,13 @@ interface ParagraphAccordion {
   position: number;
   chatMessages: Array<{ role: "user" | "ai"; message: string }>;
   paragraphContext: string; // Store the paragraph content for context
+}
+
+interface BlankResponse {
+  userAnswer: string;
+  correctAnswer: string;
+  isCorrect: boolean;
+  position: number;
 }
 
 const TYPING_INTERVAL_MS = 100;
@@ -63,44 +71,6 @@ Let me outline the steps:
   So, create a list of keys like \`[k for k,v in P.items() if v == val]\`
 - Get max_key as the maximum of that list, min_key as the minimum.
 - Return max_key - min_k.
-
-Wait, but what about when there are no keys with val? Well, since we already checked earlier and found val in P, that can't happen. Because if it were, then after checking, the 'else' part wouldn't be entered for that case.
-
-So perhaps more precisely:
-
-\`\`\`python
-keys_with_val = [k for k, v in P.items() if v == val]
-if not keys_with_val:
-    return -1
-else:
-    max_k = max(keys_with_val)
-    min_k = min(keys_with_val)
-    return max_k - min_k
-    return -1 
-\`\`\`
-
-But wait, since we already checked that 'val is in P' which means keys_with_val can't be empty. So the else part isn't needed.
-
-\`\`\`python
-max_k = max(keys_with_val)
-min_k = min(keys_with_val)
-return max_k - min_k
-\`\`\`
-
-\`\`\`python
-def identical(P, val):
-    if val not in P:
-        return -1
-    if val not in P:
-        return -1
-    keys = BLANK([k for k, v in P.items() if v == val])
-    if val not in P:
-        return -1
-    keys = BLANK([k for k, v in P.items() if v == val])
-    max_k = max(keys)
-    min_k = min(keys)
-    return BLANK(max_k - min_k)
-\`\`\`
 
 Wait, but let me think about the sample input given. The function is called with \`{1:3,4:2,5:3,7:3}\`, and val is 3. The code would extract keys \`[1,5,7]\`, compute BLANK(6), which matches the example. So that's correct.
 
@@ -134,6 +104,12 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
   );
   const [currentChatInput, setCurrentChatInput] = useState("");
   const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+
+  // Add new state for storing blank responses
+  const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
+
+  // Add state to track if the content is completed
+  const [isContentComplete, setIsContentComplete] = useState(false);
 
   // Function to get the current paragraph context
   const getCurrentParagraphContext = (): string => {
@@ -192,10 +168,10 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
       return; // Do nothing if not typing
     }
 
-    // If we've reached the end of the story, stop typing
+    // If we've reached the end of the story, stop typing and mark as complete
     if (currentPosition >= aiText.length && !getNextSegment(1).isBlank) {
-      // check for trailing blanks
       setIsTyping(false);
+      setIsContentComplete(true); // Mark content as complete
       return;
     }
 
@@ -232,6 +208,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         setIsPreparingForBlank(true);
       } else {
         setIsTyping(false); // stop as we reached the end of the text
+        setIsContentComplete(true); // Mark content as complete when we reach the end
       }
     }, TYPING_INTERVAL_MS);
     return () => clearInterval(intervalId);
@@ -253,6 +230,8 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
     setCurrentAccordionId(null);
     setCurrentChatInput("");
     setIsLoadingResponse(false);
+    setBlankResponses([]); // Reset blank responses
+    setIsContentComplete(false); // Reset completion status
   };
 
   const handleParagraphFeedback = (understood: boolean) => {
@@ -263,7 +242,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         setIsWaitingForParagraphFeedback(false);
         setCurrentAccordionId(null);
         setIsTyping(true); // Continue typing
-      }, 1000);
+      }, 300);
     } else {
       // Create a new accordion for this paragraph
       const accordionId = `${currentPosition}`;
@@ -485,18 +464,52 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
   }
 
   const handleUserInputSubmit = () => {
-    if (!userInput.trim() || !currentBlankAnswer) return; // Don't submit empty input or if no blank is active
+    if (!userInput.trim() || !currentBlankAnswer) return;
 
     const isCorrect =
       userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
 
-    setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Oops, try again!");
+    // Save the user's response
+    const blankResponse: BlankResponse = {
+      userAnswer: userInput.trim(),
+      correctAnswer: currentBlankAnswer,
+      isCorrect,
+      position: currentPosition - `BLANK(${currentBlankAnswer})`.length, // Position where the blank started
+    };
+
+    setBlankResponses((prev) => [...prev, blankResponse]);
+
+    setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Incorrect!");
 
     setTimeout(() => {
+      // Update the revealed text to show the user's answer inline
+      setRevealedText((prev) => {
+        const blankPlaceholder = `[${currentBlankAnswer}] `;
+        const lastBlankIndex = prev.lastIndexOf(blankPlaceholder);
+
+        if (lastBlankIndex !== -1) {
+          const beforeBlank = prev.slice(0, lastBlankIndex);
+          const afterBlank = prev.slice(
+            lastBlankIndex + blankPlaceholder.length
+          );
+
+          let replacement;
+          if (isCorrect) {
+            replacement = `**${userInput.trim()}** ✓`;
+          } else {
+            replacement = `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
+          }
+
+          return beforeBlank + replacement + afterBlank;
+        }
+        return prev;
+      });
+
       setUserInput("");
       setFeedbackMessage("");
       setCurrentBlankAnswer(null);
       setIsWaitingForBlankFill(false);
+      setIsPreparingForBlank(false);
 
       // Resume typing if there's more story
       if (currentPosition < aiText.length) {
@@ -504,7 +517,12 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
       } else {
         // Check for trailing blanks
         const nextSegment = getNextSegment(1);
-        setIsTyping(nextSegment.isBlank);
+        if (nextSegment.isBlank) {
+          setIsTyping(true);
+        } else {
+          // No more content, mark as complete
+          setIsContentComplete(true);
+        }
       }
     }, FEEDBACK_DURATION_MS);
   };
@@ -527,7 +545,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
       return (
         <ReactMarkdown
           components={{
-            p: ({ children }) => <div className="mb-4">{children}</div>,
+            p: ({ children }) => (
+              <div className="mb-4 leading-relaxed">{children}</div>
+            ),
             code: ({ children }) => (
               <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
                 {children}
@@ -535,7 +555,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ),
             pre: ({ children }) => (
               <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
-                <code className="text-green-300 font-mono text-sm">{children}</code>
+                <code className="text-green-300 font-mono text-sm">
+                  {children}
+                </code>
               </pre>
             ),
             ul: ({ children }) => (
@@ -544,23 +566,44 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ol: ({ children }) => (
               <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
             ),
-            li: ({ children }) => (
-              <li className="mb-1">{children}</li>
-            ),
-            strong: ({ children }) => (
-              <strong className="font-bold text-white">{children}</strong>
-            ),
+            li: ({ children }) => <li className="mb-1">{children}</li>,
+            strong: ({ children }) => {
+              // Check if this is a user answer with feedback
+              const text = children?.toString() || "";
+              if (text.includes("✓")) {
+                return (
+                  <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              } else if (text.includes("✗")) {
+                return (
+                  <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              }
+              return (
+                <strong className="font-bold text-blue-300">{children}</strong>
+              );
+            },
             em: ({ children }) => (
-              <em className="italic text-gray-200">{children}</em>
+              <em className="italic text-gray-300">{children}</em>
             ),
             h1: ({ children }) => (
-              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">
+                {children}
+              </h1>
             ),
             h2: ({ children }) => (
-              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+              <h2 className="text-xl font-bold mb-3 text-blue-300">
+                {children}
+              </h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+              <h3 className="text-lg font-bold mb-2 text-blue-300">
+                {children}
+              </h3>
             ),
           }}
         >
@@ -578,7 +621,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
       return (
         <ReactMarkdown
           components={{
-            p: ({ children }) => <div className="mb-4">{children}</div>,
+            p: ({ children }) => (
+              <div className="mb-4 leading-relaxed">{children}</div>
+            ),
             code: ({ children }) => (
               <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
                 {children}
@@ -586,7 +631,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ),
             pre: ({ children }) => (
               <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
-                <code className="text-green-300 font-mono text-sm">{children}</code>
+                <code className="text-green-300 font-mono text-sm">
+                  {children}
+                </code>
               </pre>
             ),
             ul: ({ children }) => (
@@ -595,23 +642,44 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ol: ({ children }) => (
               <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
             ),
-            li: ({ children }) => (
-              <li className="mb-1">{children}</li>
-            ),
-            strong: ({ children }) => (
-              <strong className="font-bold text-white">{children}</strong>
-            ),
+            li: ({ children }) => <li className="mb-1">{children}</li>,
+            strong: ({ children }) => {
+              // Check if this is a user answer with feedback
+              const text = children?.toString() || "";
+              if (text.includes("✓")) {
+                return (
+                  <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              } else if (text.includes("✗")) {
+                return (
+                  <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              }
+              return (
+                <strong className="font-bold text-blue-300">{children}</strong>
+              );
+            },
             em: ({ children }) => (
-              <em className="italic text-gray-200">{children}</em>
+              <em className="italic text-gray-300">{children}</em>
             ),
             h1: ({ children }) => (
-              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">
+                {children}
+              </h1>
             ),
             h2: ({ children }) => (
-              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+              <h2 className="text-xl font-bold mb-3 text-blue-300">
+                {children}
+              </h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+              <h3 className="text-lg font-bold mb-2 text-blue-300">
+                {children}
+              </h3>
             ),
           }}
         >
@@ -636,7 +704,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
           <ReactMarkdown
             key={`text-${lastIndex}`}
             components={{
-              p: ({ children }) => <div className="mb-4">{children}</div>,
+              p: ({ children }) => (
+                <div className="mb-4 leading-relaxed">{children}</div>
+              ),
               code: ({ children }) => (
                 <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
                   {children}
@@ -644,32 +714,59 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
               ),
               pre: ({ children }) => (
                 <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
-                  <code className="text-green-300 font-mono text-sm">{children}</code>
+                  <code className="text-green-300 font-mono text-sm">
+                    {children}
+                  </code>
                 </pre>
               ),
               ul: ({ children }) => (
                 <ul className="list-disc list-inside mb-4 ml-4">{children}</ul>
               ),
               ol: ({ children }) => (
-                <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
+                <ol className="list-decimal list-inside mb-4 ml-4">
+                  {children}
+                </ol>
               ),
-              li: ({ children }) => (
-                <li className="mb-1">{children}</li>
-              ),
-              strong: ({ children }) => (
-                <strong className="font-bold text-white">{children}</strong>
-              ),
+              li: ({ children }) => <li className="mb-1">{children}</li>,
+              strong: ({ children }) => {
+                // Check if this is a user answer with feedback
+                const text = children?.toString() || "";
+                if (text.includes("✓")) {
+                  return (
+                    <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded">
+                      {children}
+                    </span>
+                  );
+                } else if (text.includes("✗")) {
+                  return (
+                    <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded">
+                      {children}
+                    </span>
+                  );
+                }
+                return (
+                  <strong className="font-bold text-blue-300">
+                    {children}
+                  </strong>
+                );
+              },
               em: ({ children }) => (
-                <em className="italic text-gray-200">{children}</em>
+                <em className="italic text-gray-300">{children}</em>
               ),
               h1: ({ children }) => (
-                <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+                <h1 className="text-2xl font-bold mb-4 text-blue-300">
+                  {children}
+                </h1>
               ),
               h2: ({ children }) => (
-                <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+                <h2 className="text-xl font-bold mb-3 text-blue-300">
+                  {children}
+                </h2>
               ),
               h3: ({ children }) => (
-                <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+                <h3 className="text-lg font-bold mb-2 text-blue-300">
+                  {children}
+                </h3>
               ),
             }}
           >
@@ -777,7 +874,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         <ReactMarkdown
           key={`text-${lastIndex}`}
           components={{
-            p: ({ children }) => <div className="mb-4">{children}</div>,
+            p: ({ children }) => (
+              <div className="mb-4 leading-relaxed">{children}</div>
+            ),
             code: ({ children }) => (
               <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm">
                 {children}
@@ -785,7 +884,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ),
             pre: ({ children }) => (
               <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
-                <code className="text-green-300 font-mono text-sm">{children}</code>
+                <code className="text-green-300 font-mono text-sm">
+                  {children}
+                </code>
               </pre>
             ),
             ul: ({ children }) => (
@@ -794,23 +895,44 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             ol: ({ children }) => (
               <ol className="list-decimal list-inside mb-4 ml-4">{children}</ol>
             ),
-            li: ({ children }) => (
-              <li className="mb-1">{children}</li>
-            ),
-            strong: ({ children }) => (
-              <strong className="font-bold text-white">{children}</strong>
-            ),
+            li: ({ children }) => <li className="mb-1">{children}</li>,
+            strong: ({ children }) => {
+              // Check if this is a user answer with feedback
+              const text = children?.toString() || "";
+              if (text.includes("✓")) {
+                return (
+                  <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              } else if (text.includes("✗")) {
+                return (
+                  <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded">
+                    {children}
+                  </span>
+                );
+              }
+              return (
+                <strong className="font-bold text-blue-300">{children}</strong>
+              );
+            },
             em: ({ children }) => (
-              <em className="italic text-gray-200">{children}</em>
+              <em className="italic text-gray-300">{children}</em>
             ),
             h1: ({ children }) => (
-              <h1 className="text-2xl font-bold mb-4 text-blue-300">{children}</h1>
+              <h1 className="text-2xl font-bold mb-4 text-blue-300">
+                {children}
+              </h1>
             ),
             h2: ({ children }) => (
-              <h2 className="text-xl font-bold mb-3 text-blue-300">{children}</h2>
+              <h2 className="text-xl font-bold mb-3 text-blue-300">
+                {children}
+              </h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-lg font-bold mb-2 text-blue-300">{children}</h3>
+              <h3 className="text-lg font-bold mb-2 text-blue-300">
+                {children}
+              </h3>
             ),
           }}
         >
@@ -820,6 +942,107 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
     }
 
     return result;
+  };
+
+  // Modified function to display blank responses summary only when content is complete
+  const renderBlankResponsesSummary = () => {
+    // Only show if content is complete and there are responses
+    if (!isContentComplete || blankResponses.length === 0) return null;
+
+    const correctCount = blankResponses.filter((r) => r.isCorrect).length;
+    const accuracy = Math.round((correctCount / blankResponses.length) * 100);
+
+    return (
+      <div className="mt-8 p-6 bg-gray-800 rounded-lg border border-gray-600 shadow-lg">
+        <div className="flex items-center mb-4">
+          <h3 className="text-xl font-bold text-blue-300">
+            🎯 Your Performance Summary
+          </h3>
+        </div>
+
+        <div className="mb-4 p-4 bg-gray-900 rounded-lg">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-lg font-semibold text-white">
+              Overall Accuracy:
+            </span>
+            <span
+              className={`text-2xl font-bold ${
+                accuracy >= 80
+                  ? "text-green-400"
+                  : accuracy >= 60
+                  ? "text-yellow-400"
+                  : "text-red-400"
+              }`}
+            >
+              {accuracy}%
+            </span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-300">
+            <span>Correct: {correctCount}</span>
+            <span>Total: {blankResponses.length}</span>
+            <span>Incorrect: {blankResponses.length - correctCount}</span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="text-lg font-semibold text-gray-200 mb-3">
+            Detailed Responses:
+          </h4>
+          {blankResponses.map((response, index) => (
+            <div
+              key={index}
+              className={`flex items-center justify-between p-3 rounded-lg ${
+                response.isCorrect
+                  ? "bg-green-900/20 border border-green-700/30"
+                  : "bg-red-900/20 border border-red-700/30"
+              }`}
+            >
+              <div className="flex items-center space-x-3">
+                <span
+                  className={`text-lg ${
+                    response.isCorrect ? "text-green-400" : "text-red-400"
+                  }`}
+                >
+                  {response.isCorrect ? "✓" : "✗"}
+                </span>
+                <div>
+                  <span className="text-gray-300">Your answer: </span>
+                  <span
+                    className={`font-semibold ${
+                      response.isCorrect ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {response.userAnswer}
+                  </span>
+                  {!response.isCorrect && (
+                    <div className="text-sm">
+                      <span className="text-gray-400">Correct answer: </span>
+                      <span className="text-green-400 font-medium">
+                        {response.correctAnswer}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="text-xs text-gray-500">Question #{index + 1}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Motivational message based on performance */}
+        <div className="mt-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+          <p className="text-blue-300 text-center font-medium">
+            {accuracy >= 90
+              ? "🌟 Excellent work! You have a great understanding of the material!"
+              : accuracy >= 70
+              ? "👍 Good job! You're getting the hang of this!"
+              : accuracy >= 50
+              ? "📚 Keep practicing! You're on the right track!"
+              : "💪 Don't give up! Review the material and try again!"}
+          </p>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -846,7 +1069,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
       <div className="font-sans text-lg mt-6">
         <div>
           {renderTextWithAccordions(animatedRevealedText)}
-          
+
           {/* Current paragraph feedback section */}
           {isWaitingForParagraphFeedback && (
             <span className="block mt-4 p-4 bg-gray-800 rounded-lg border border-gray-600">
@@ -872,7 +1095,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
                 </div>
               )}
 
-              {/* Current Chat Accordion - only show if currentAccordionId exists */}
+              {/* Current Chat Accordion */}
               {currentAccordionId && (
                 <div className="mb-4">
                   <Accordion
@@ -1052,6 +1275,9 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             </span>
           )}
         </div>
+
+        {/* Show blank responses summary only when content is complete */}
+        {renderBlankResponsesSummary()}
       </div>
     </div>
   );
