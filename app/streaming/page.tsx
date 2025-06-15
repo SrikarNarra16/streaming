@@ -94,6 +94,11 @@ Another test case: identical({}, 0). Should return -1 because val is not present
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [isPreparingForBlank, setIsPreparingForBlank] = useState(false);
 
+  //  paragraph feedback
+  const [isWaitingForParagraphFeedback, setIsWaitingForParagraphFeedback] = useState(false);
+  const [paragraphFeedbackMessage, setParagraphFeedbackMessage] = useState("");
+  const [currentParagraphEnd, setCurrentParagraphEnd] = useState(0);
+
   useEffect(() => {
     if (!isTyping) {
       return; // Do nothing if not typing
@@ -111,8 +116,22 @@ Another test case: identical({}, 0). Should return -1 because val is not present
 
       if (segment.text) {
         console.log(`Revealing text: ${segment.text}`);
-        setRevealedText((prev) => prev + segment.text);
-        setCurrentPosition(segment.newPosition || currentPosition);
+        
+        // Check if we've reached the end of a paragraph in this segment
+        const paragraphBreakIndex = segment.text.indexOf('\n\n');
+        
+        if (paragraphBreakIndex !== -1) {
+          // Stop at the paragraph break
+          const textUpToParagraph = segment.text.slice(0, paragraphBreakIndex + 2); // +2 to include the new line characters
+          setRevealedText((prev) => prev + textUpToParagraph);
+          setCurrentPosition(currentPosition + textUpToParagraph.length);
+          setIsTyping(false);
+          setIsWaitingForParagraphFeedback(true);
+        } else {
+          // No paragraph break, continue normally
+          setRevealedText((prev) => prev + segment.text);
+          setCurrentPosition(segment.newPosition || currentPosition);
+        }
       } else if (segment.isBlank) {
         setRevealedText((prev) => prev + `[${segment.blankAnswer}] `);
         setIsTyping(false);
@@ -136,6 +155,27 @@ Another test case: identical({}, 0). Should return -1 because val is not present
     setCurrentBlankAnswer(null);
     setFeedbackMessage("");
     setIsPreparingForBlank(false);
+    setIsWaitingForParagraphFeedback(false);
+    setParagraphFeedbackMessage("");
+    setCurrentParagraphEnd(0);
+  };
+
+  const handleParagraphFeedback = (thumbsUp: boolean) => {
+    if (thumbsUp) {
+      setParagraphFeedbackMessage("Great! Continuing...");
+      setTimeout(() => {
+        setParagraphFeedbackMessage("");
+        setIsWaitingForParagraphFeedback(false);
+        setIsTyping(true); // Continue typing
+      }, 1000);
+    } else {
+      setParagraphFeedbackMessage("Let me try to explain differently...");
+      setTimeout(() => {
+        setParagraphFeedbackMessage("");
+        setIsWaitingForParagraphFeedback(false);
+        setIsTyping(true); // Continue typing for now
+      }, 2000);
+    }
   };
 
   const handlePlayPause = () => {
@@ -310,19 +350,49 @@ Another test case: identical({}, 0). Should return -1 because val is not present
       <div className="font-sans text-lg mt-6">
         <p className="whitespace-pre-wrap">
           {animatedRevealedText}
+          
+          {/* Paragraph feedback section */}
+          {isWaitingForParagraphFeedback && (
+            <span className="block mt-4 p-4 bg-gray-800 rounded-lg border border-gray-600">
+              <div className="text-blue-300 mb-3">Am I making sense?</div>
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => handleParagraphFeedback(true)}
+                  className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                >
+                  <span className="text-xl mr-2">👍</span>
+                  <span>Yes, continue</span>
+                </button>
+                <button
+                  onClick={() => handleParagraphFeedback(false)}
+                  className="flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  <span className="text-xl mr-2">👎</span>
+                  <span>Please clarify</span>
+                </button>
+              </div>
+              {paragraphFeedbackMessage && (
+                <div className="mt-3 text-yellow-300 font-medium">
+                  {paragraphFeedbackMessage}
+                </div>
+              )}
+            </span>
+          )}
+
+          {/* Existing blank fill section */}
           {isWaitingForBlankFill && currentBlankAnswer && (
             <span className="inline-block ml-1">
               <input
                 type="text"
                 value={userInput}
                 onChange={(e) => setUserInput(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleUserInputSubmit()} // We'll add this handler next
+                onKeyPress={(e) => e.key === "Enter" && handleUserInputSubmit()}
                 className="inline-block mx-1 px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[80px]"
                 placeholder={`[${currentBlankAnswer.length} chars]`}
                 autoFocus
               />
               <button
-                onClick={handleUserInputSubmit} // We'll add this handler next
+                onClick={handleUserInputSubmit}
                 className="inline-block ml-1 px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
               >
                 Go
