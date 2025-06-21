@@ -2,14 +2,12 @@
 
 // ---------------------------------------------------------------------------
 
-// TODO: Logging, Login, and DB
+// TODO: Logging, Login, and DB (DONE)
 // Add question on the top and to the chat (DONE)
 // Add conversation history to the chat
 // After each paragraph answer of the user to the feedback readonly
 // Make more prominent: 3 ✗ (Correct Answer: 6)
 // After thinking show the actual AI response
-// Performace: Add how many times they said I did not understand
-// Readme add paragraphs details and code formatting
 
 // ---------------------------------------------------------------------------
 import React, { useEffect, useRef, useState } from "react";
@@ -133,14 +131,22 @@ function StreamingPage() {
 
   const getChatResponse = async (
     userMessage: string,
-    context: string
+    context: string,
+    conversationHistory: Array<{ role: "user" | "ai"; message: string }> = []
   ): Promise<string> => {
     console.log("Context for chat:", context);
+    console.log("Conversation history:", conversationHistory);
 
     if (!context || context.trim() === "") {
       console.warn("Empty context provided, using fallback");
       context = "General programming question";
     }
+
+    // Convert conversation history to the format expected by the API
+    const apiConversationHistory = conversationHistory.map((msg) => ({
+      role: msg.role === "ai" ? "assistant" : msg.role,
+      message: msg.message,
+    }));
 
     try {
       const response = await fetch("/api/generate", {
@@ -150,6 +156,7 @@ function StreamingPage() {
           prompt: userMessage,
           context: context,
           type: "explanation_chat",
+          conversationHistory: apiConversationHistory,
         }),
       });
 
@@ -401,6 +408,9 @@ function StreamingPage() {
 
     console.log("Using context for chat:", context.slice(0, 200) + "...");
 
+    // Get conversation history for this accordion
+    const conversationHistory = accordion?.chatMessages || [];
+
     // Add user message immediately
     setParagraphAccordions((prev) =>
       prev.map((accordion) =>
@@ -417,7 +427,12 @@ function StreamingPage() {
     );
 
     try {
-      const aiResponse = await getChatResponse(userMessage, context);
+      // Pass conversation history to the AI
+      const aiResponse = await getChatResponse(
+        userMessage,
+        context,
+        conversationHistory
+      );
 
       setParagraphAccordions((prev) =>
         prev.map((accordion) =>
@@ -787,6 +802,15 @@ function StreamingPage() {
                         {msg.message}
                       </div>
                     ))}
+
+                    {/* Indicate AI memory of previous messages */}
+                    {accordion.chatMessages.length > 1 && (
+                      <div className="text-xs text-gray-500 mb-2 italic">
+                        💭 AI remembers our previous{" "}
+                        {Math.floor(accordion.chatMessages.length / 2)}{" "}
+                        exchanges
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

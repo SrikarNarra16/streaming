@@ -103,6 +103,18 @@ The current implementation focuses on coding explanations (specifically a Python
    - Main app: [http://localhost:3000/streaming](http://localhost:3000/streaming)
    - Authentication: [http://localhost:3000/auth/login](http://localhost:3000/auth/login)
 
+### First-Time Setup Checklist
+
+When setting up the project on a new machine:
+
+- [ ] Install PostgreSQL or setup cloud database
+- [ ] Create `.env.local` with correct `DATABASE_URL`
+- [ ] Run `pnpm install` to install dependencies
+- [ ] Run `pnpm db:reset` to create database tables
+- [ ] Create your first user account through the application
+- [ ] Add questions to the database
+- [ ] Start development with `pnpm dev`
+
 ## 🗄️ Database Schema
 
 The application uses the following database tables:
@@ -178,7 +190,35 @@ pnpm db:migrate
 
 # View database in Drizzle Studio
 pnpm db:studio
+
+# Reset database (drops all data and recreates tables)
+pnpm db:reset
 ```
+
+### Database Reset
+
+The reset command completely wipes your database and recreates all tables with the proper schema:
+
+```bash
+# Reset database - WARNING: This deletes ALL data
+pnpm db:reset
+```
+
+**What the reset does:**
+
+- ✅ Drops all existing tables (`users`, `questions`, `logs`)
+- ✅ Recreates empty tables with proper schema
+- ✅ Creates necessary indexes for performance
+- ❌ **Does NOT insert sample data** - you start with clean, empty tables
+
+**When to use reset:**
+
+- Setting up the project for the first time
+- Switching to a new database
+- During development when you need to start fresh
+- After major schema changes
+
+**⚠️ Warning:** This command will delete ALL data in your database. Make sure you have backups of any important data before running it.
 
 ### Switching Databases
 

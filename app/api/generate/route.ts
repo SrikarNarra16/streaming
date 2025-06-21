@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger";
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies(); // Add await here
+    const cookieStore = await cookies();
     const userId = cookieStore.get("userId")?.value;
 
     if (!userId) {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { prompt, context, type } = await request.json();
+    const { prompt, context, type, conversationHistory } = await request.json();
 
     await logger.info(
       "ai_generate_request",
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
         type,
         promptLength: prompt?.length,
         contextLength: context?.length,
+        conversationLength: conversationHistory?.length || 0,
         userQuestion: prompt,
       },
       userId
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     });
 
     let systemPrompt = "";
-    let userPrompt = "";
+    let messages = [];
 
     if (type === "explanation_chat") {
       // For explanation chat questions
@@ -46,25 +47,42 @@ export async function POST(request: NextRequest) {
 4. Don't give away answers to coding problems directly, but guide their understanding
 5. Be encouraging and supportive
 6. Keep responses concise but thorough
+7. Remember the conversation history and build upon previous questions/answers
 
 The student is currently reading this explanation context:
 ${context}`;
 
-      userPrompt = `The student asks: "${prompt}"
+      // Build messages array with system prompt
+      messages = [{ role: "system", content: systemPrompt }];
 
-Please provide a helpful response that clarifies their doubt about this explanation.`;
+      // Add conversation history if provided
+      if (conversationHistory && Array.isArray(conversationHistory)) {
+        conversationHistory.forEach((msg) => {
+          if (msg.role === "user" || msg.role === "assistant") {
+            messages.push({
+              role: msg.role,
+              content: msg.message,
+            });
+          }
+        });
+      }
+
+      // Add the current user message
+      messages.push({
+        role: "user",
+        content: prompt,
+      });
     } else {
       // Default behavior for other types
-      systemPrompt = "You are a helpful assistant.";
-      userPrompt = prompt;
+      messages = [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: prompt },
+      ];
     }
 
     const response = await openai.chat.completions.create({
       model: "deepseek-chat",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
+      messages,
       temperature: 0.7,
       max_tokens: 500,
     });
@@ -78,6 +96,7 @@ Please provide a helpful response that clarifies their doubt about this explanat
         userQuestion: prompt,
         aiResponse: content,
         responseLength: content?.length,
+        conversationLength: conversationHistory?.length || 0,
       },
       userId
     );
@@ -86,7 +105,7 @@ Please provide a helpful response that clarifies their doubt about this explanat
       content: content,
     });
   } catch (error: any) {
-    const cookieStore = await cookies(); // Add await here too
+    const cookieStore = await cookies();
     const userId = cookieStore.get("userId")?.value;
 
     await logger.error(

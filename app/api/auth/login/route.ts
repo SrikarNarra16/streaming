@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { db } from "@/db";
+import { db } from "@/lib/db";
 import { users } from "@/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/lib/logger";
@@ -37,7 +36,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isValidPassword = await bcrypt.compare(password, user[0].password);
+    // Compare plain text passwords (since they're stored as plain text)
+    const isValidPassword = password === user[0].password;
 
     if (!isValidPassword) {
       await logger.warn("login_failed", { email, reason: "invalid_password" });
@@ -47,12 +47,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     cookieStore.set("userId", user[0].id.toString(), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+      maxAge: 60 * 60 * 24 * 7,
     });
 
     await logger.info(
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       message: "Login successful",
       user: { id: user[0].id, name: user[0].name, email: user[0].email },
     });
-  } catch (error) {
+  } catch (error: any) {
     await logger.error("login_error", { error: error.message });
     console.error("Login error:", error);
     return NextResponse.json(

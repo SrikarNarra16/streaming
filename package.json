@@ -8,9 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:reset": "node scripts/reset-db.js"
   },
   "dependencies": {
     "@auth/pg-adapter": "^1.9.1",
