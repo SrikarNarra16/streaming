@@ -295,25 +295,6 @@ NEXTAUTH_SECRET=your_secure_random_string
 NODE_ENV=production
 ```
 
-### Deployment Platforms
-
-The application works well with:
-
-- **Vercel** (recommended for Next.js)
-- **Railway** (with PostgreSQL)
-- **Heroku** (with Heroku Postgres)
-- **DigitalOcean App Platform**
-
-### Database Hosting
-
-Recommended database providers:
-
-- **Supabase** - Free tier, good for development
-- **Neon** - Serverless PostgreSQL
-- **Railway** - Simple deployment with database
-- **AWS RDS** - Production-grade
-- **Google Cloud SQL** - Enterprise solution
-
 ## 🔍 Development Notes
 
 ### Adding New Questions
