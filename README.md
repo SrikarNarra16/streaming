@@ -50,8 +50,6 @@ The current implementation focuses on coding explanations (specifically a Python
    Install PostgreSQL locally and create a database:
 
    ```bash
-   # Create database
-   createdb streaming_app
 
    # Update DATABASE_URL in .env.local
    DATABASE_URL=postgresql://username:password@localhost:5432/streaming_app
