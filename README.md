@@ -61,8 +61,6 @@ The current implementation focuses on coding explanations (specifically a Python
 
    - **Supabase** (free tier available)
    - **Neon** (serverless postgres)
-   - **Railway** (simple deployment)
-   - **Vercel Postgres**
 
    Example with Supabase:
 
