@@ -1,9 +1,32 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import OpenAI from "openai";
+import { logger } from "@/lib/logger";
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const cookieStore = await cookies(); // Add await here
+    const userId = cookieStore.get("userId")?.value;
+
+    if (!userId) {
+      await logger.warn("ai_generate_access_denied", {
+        reason: "not_authenticated",
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { prompt, context, type } = await request.json();
+
+    await logger.info(
+      "ai_generate_request",
+      {
+        type,
+        promptLength: prompt?.length,
+        contextLength: context?.length,
+        userQuestion: prompt,
+      },
+      userId
+    );
 
     const openai = new OpenAI({
       baseURL: "https://api.deepseek.com",
@@ -46,10 +69,34 @@ Please provide a helpful response that clarifies their doubt about this explanat
       max_tokens: 500,
     });
 
+    const content = response.choices[0].message.content;
+
+    await logger.info(
+      "ai_generate_success",
+      {
+        type,
+        userQuestion: prompt,
+        aiResponse: content,
+        responseLength: content?.length,
+      },
+      userId
+    );
+
     return NextResponse.json({
-      content: response.choices[0].message.content,
+      content: content,
     });
   } catch (error: any) {
+    const cookieStore = await cookies(); // Add await here too
+    const userId = cookieStore.get("userId")?.value;
+
+    await logger.error(
+      "ai_generate_error",
+      {
+        error: error.message,
+        userQuestion: prompt,
+      },
+      userId
+    );
     console.error("Error:", error);
     return NextResponse.json(
       { error: `Error occurred: ${error.message}` },

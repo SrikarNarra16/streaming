@@ -106,9 +106,9 @@ function StreamingPage() {
           throw new Error("Failed to fetch questions");
         }
         const data = await response.json();
-        
+
         setAllQuestions(data.questions);
-        
+
         // Auto-load first question if available
         if (data.questions.length > 0) {
           setCurrentQuestion(data.questions[0]);
@@ -292,6 +292,14 @@ function StreamingPage() {
     // Only allow if current question is complete
     if (isContentComplete && currentQuestionIndex < allQuestions.length - 1) {
       const nextIndex = currentQuestionIndex + 1;
+
+      // Log navigation
+      logUserAction("question_navigation", {
+        from: currentQuestionIndex,
+        to: nextIndex,
+        direction: "next",
+      });
+
       setCurrentQuestionIndex(nextIndex);
       setCurrentQuestion(allQuestions[nextIndex]);
       handleReset(); // Reset all states for new question
@@ -309,7 +317,7 @@ function StreamingPage() {
 
   const handlePlayPause = () => {
     if (!currentQuestion) return;
-    
+
     if (
       !isTyping &&
       currentPosition >= aiText.length &&
@@ -317,10 +325,25 @@ function StreamingPage() {
     ) {
       return;
     }
-    setIsTyping(!isTyping);
+
+    const newTypingState = !isTyping;
+    setIsTyping(newTypingState);
+
+    // Log the action
+    logUserAction(newTypingState ? "streaming_started" : "streaming_paused", {
+      questionId: currentQuestion.id,
+      position: currentPosition,
+    });
   };
 
   const handleParagraphFeedback = (understood: boolean) => {
+    // Log feedback
+    logUserAction("paragraph_feedback", {
+      questionId: currentQuestion?.id,
+      understood,
+      position: currentPosition,
+    });
+
     const accordionId = `${currentPosition}`;
     const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
 
@@ -331,7 +354,7 @@ function StreamingPage() {
         position: currentPosition,
         chatMessages: [],
         paragraphContext: fullContextUpToNow || "No previous content available",
-        userFeedback: "understood"
+        userFeedback: "understood",
       };
       setParagraphAccordions((prev) => [...prev, newAccordion]);
 
@@ -351,7 +374,7 @@ function StreamingPage() {
         position: currentPosition,
         chatMessages: [],
         paragraphContext: fullContextUpToNow || "No previous content available",
-        userFeedback: "did_not_understand"
+        userFeedback: "did_not_understand",
       };
       setParagraphAccordions((prev) => [...prev, newAccordion]);
       setCurrentAccordionId(accordionId);
@@ -448,6 +471,15 @@ function StreamingPage() {
 
     const isCorrect =
       userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+
+    // Log blank response
+    logUserAction("blank_response", {
+      questionId: currentQuestion?.id,
+      userAnswer: userInput.trim(),
+      correctAnswer: currentBlankAnswer,
+      isCorrect,
+      position: currentPosition,
+    });
 
     const blankResponse: BlankResponse = {
       userAnswer: userInput.trim(),
@@ -575,6 +607,19 @@ function StreamingPage() {
     }
   };
 
+  // Add this function near the top of your component
+  const logUserAction = async (action: string, details: any = {}) => {
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, details }),
+      });
+    } catch (error) {
+      console.error("Failed to log action:", error);
+    }
+  };
+
   if (isLoadingQuestions) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -629,7 +674,9 @@ function StreamingPage() {
                   ? "bg-gray-600 text-gray-400 cursor-not-allowed"
                   : "bg-blue-500 hover:bg-blue-700 text-white"
               }`}
-              title={!isContentComplete ? "Complete the current question first" : ""}
+              title={
+                !isContentComplete ? "Complete the current question first" : ""
+              }
             >
               Next
             </button>
@@ -641,8 +688,12 @@ function StreamingPage() {
       {isContentComplete && currentQuestionIndex < allQuestions.length - 1 && (
         <div className="mb-6 p-4 bg-green-800 rounded-lg flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-green-200">Question Complete!</h3>
-            <p className="text-green-300">Ready to move to the next question?</p>
+            <h3 className="text-lg font-semibold text-green-200">
+              Question Complete!
+            </h3>
+            <p className="text-green-300">
+              Ready to move to the next question?
+            </p>
           </div>
           <button
             onClick={handleNextQuestion}
@@ -656,8 +707,12 @@ function StreamingPage() {
       {/* Show completion message when all questions are done */}
       {isContentComplete && currentQuestionIndex >= allQuestions.length - 1 && (
         <div className="mb-6 p-4 bg-purple-800 rounded-lg text-center">
-          <h3 className="text-lg font-semibold text-purple-200">🎉 All Questions Complete!</h3>
-          <p className="text-purple-300">You've finished all available questions. Great job!</p>
+          <h3 className="text-lg font-semibold text-purple-200">
+            🎉 All Questions Complete!
+          </h3>
+          <p className="text-purple-300">
+            You've finished all available questions. Great job!
+          </p>
         </div>
       )}
 
@@ -690,28 +745,46 @@ function StreamingPage() {
             renderReadonlyFeedback={(accordion: ParagraphAccordion) => (
               <div className="mb-4 p-3 bg-gray-800 rounded-lg border-l-4 border-blue-500">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-3 h-3 rounded-full ${
-                    accordion.userFeedback === "understood" ? "bg-green-500" : "bg-yellow-500"
-                  }`}></div>
+                  <div
+                    className={`w-3 h-3 rounded-full ${
+                      accordion.userFeedback === "understood"
+                        ? "bg-green-500"
+                        : "bg-yellow-500"
+                    }`}
+                  ></div>
                   <span className="text-sm font-medium text-gray-300">
-                    Your Response: 
-                    <span className={`ml-2 ${
-                      accordion.userFeedback === "understood" ? "text-green-400" : "text-yellow-400"
-                    }`}>
-                      {accordion.userFeedback === "understood" ? "✓ I understand" : "❓ I did not understand"}
+                    Your Response:
+                    <span
+                      className={`ml-2 ${
+                        accordion.userFeedback === "understood"
+                          ? "text-green-400"
+                          : "text-yellow-400"
+                      }`}
+                    >
+                      {accordion.userFeedback === "understood"
+                        ? "✓ I understand"
+                        : "❓ I did not understand"}
                     </span>
                   </span>
                 </div>
-                
+
                 {/* Show chat history if they asked questions */}
                 {accordion.chatMessages.length > 0 && (
                   <div className="mt-3 pl-4 border-l-2 border-gray-600">
-                    <div className="text-xs text-gray-500 mb-2">Chat History:</div>
+                    <div className="text-xs text-gray-500 mb-2">
+                      Chat History:
+                    </div>
                     {accordion.chatMessages.map((msg, index) => (
-                      <div key={index} className={`mb-2 text-sm ${
-                        msg.role === "user" ? "text-blue-300" : "text-gray-300"
-                      }`}>
-                        <strong>{msg.role === "user" ? "You" : "AI"}:</strong> {msg.message}
+                      <div
+                        key={index}
+                        className={`mb-2 text-sm ${
+                          msg.role === "user"
+                            ? "text-blue-300"
+                            : "text-gray-300"
+                        }`}
+                      >
+                        <strong>{msg.role === "user" ? "You" : "AI"}:</strong>{" "}
+                        {msg.message}
                       </div>
                     ))}
                   </div>

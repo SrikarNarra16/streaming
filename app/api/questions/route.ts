@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { questions } from "@/schema";
-import { cookies } from "next/headers";
+import { logger } from "@/lib/logger";
 
 export async function GET() {
   try {
-    // Check if user is authenticated
-    const cookieStore = cookies();
+    const cookieStore = await cookies(); // Add await here
     const userId = cookieStore.get("userId")?.value;
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
+      await logger.warn("questions_access_denied", {
+        reason: "not_authenticated",
+      });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    await logger.info("questions_fetched", {}, userId);
 
     const allQuestions = await db
       .select()
@@ -23,6 +25,7 @@ export async function GET() {
 
     return NextResponse.json({ questions: allQuestions });
   } catch (error) {
+    await logger.error("questions_fetch_error", { error: error.message });
     console.error("Error fetching questions:", error);
     return NextResponse.json(
       { error: "Internal server error" },
