@@ -100,19 +100,6 @@ export function PerformanceSummary({
           </div>
         ))}
       </div>
-
-      {/* Motivational message based on performance */}
-      <div className="mt-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-        <p className="text-blue-300 text-center font-medium">
-          {accuracy >= 90
-            ? "🌟 Excellent work! You have a great understanding of the material!"
-            : accuracy >= 70
-            ? "👍 Good job! You're getting the hang of this!"
-            : accuracy >= 50
-            ? "📚 Keep practicing! You're on the right track!"
-            : "💪 Don't give up! Review the material and try again!"}
-        </p>
-      </div>
     </div>
   );
 }

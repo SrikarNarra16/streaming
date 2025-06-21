@@ -7,3 +7,9 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   createdAt: timestamp("created_at").notNull().default(new Date()),
 });
+
+export const questions = pgTable("questions", {
+  id: serial("id").primaryKey(),
+  question: text("question").notNull(),
+  content: text("content").notNull(),
+});

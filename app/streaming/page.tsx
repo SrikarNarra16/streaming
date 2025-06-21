@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 // TODO: Logging, Login, and DB
-// Add question on the top and to the chat
+// Add question on the top and to the chat (DONE)
 // Add conversation history to the chat
 // After each paragraph answer of the user to the feedback readonly
 // Make more prominent: 3 ✗ (Correct Answer: 6)
@@ -20,6 +20,12 @@ import { ParagraphFeedback } from "@/components/streaming/ParagraphFeedback";
 import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { TextRenderer } from "@/components/streaming/TextRenderer";
 
+interface Question {
+  id: number;
+  question: string;
+  content: string;
+}
+
 interface ThinkingSegment {
   text: string | null;
   isBlank: boolean;
@@ -32,6 +38,7 @@ interface ParagraphAccordion {
   position: number;
   chatMessages: Array<{ role: "user" | "ai"; message: string }>;
   paragraphContext: string;
+  userFeedback?: "understood" | "did_not_understand";
 }
 
 interface BlankResponse {
@@ -47,29 +54,14 @@ const ANIMATION_CHARS_PER_SECOND = 30;
 const FEEDBACK_DURATION_MS = 1500;
 
 function StreamingPage() {
-  const aiText = `Okay, I need to write a Python function called identical that takes two arguments: a dictionary P and an integer val. Both keys and values are integers, so that's good. The function should return -1 if val is not found in P. If it is found, then we need to find all the keys with value equal to val, determine the maximum and minimum of those keys, subtract them, and return that difference. Otherwise, return -1 as per the instructions.
+  // Question state
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
+  const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
 
-Let me think about the steps I need to take. First, check if val exists in P. If not, return -1 immediately. If it does exist, extract all the key-value pairs where value is equal to val. Then find the max and min of those keys. How do I get all such keys? Well, I can iterate through each item in P.items(), check if the value equals val, collect them into a list. Alternatively, maybe using a dictionary comprehension would be efficient.
-
-Once I have that list, I can compute max_key = max(keys) and min_key = min(keys). Then return (max_key - min_k). Wait, but what if there are multiple keys with the same value? That's fine because all of them will be included in the list, so both max and min would correctly find the correct values.
-
-Testing example: \`identical({1:3,4:2,5:3,7:3}, 3)\` should return 6. Let me see—keys with value 3 are 1,5,7. Max is 7, min is 1, so the difference is 6. That's correct. Another test case could be when there are no keys with val equal to any value. Like \`identical({2:4}, 3)\`—should return -1.
-
-What about an empty dictionary? If P is empty and val is found in it (which it can't because the dictionary has no keys), but that's not possible since P would have no keys anyway, so returning -1 makes sense.
-
-Let me outline the steps:
-
-**Function identical(P, val):**
-- Check if val is in P. How? Using 'in' keyword.
-  If not present: return -1
-- Else, collect all keys where value equals val.
-  So, create a list of keys like \`[k for k,v in P.items() if v == val]\`
-- Get max_key as the maximum of that list, min_key as the minimum.
-- Return max_key - min_k.
-
-Wait, but let me think about the sample input given. The function is called with \`{1:3,4:2,5:3,7:3}\`, and val is 3. The code would extract keys \`[1,5,7]\`, compute BLANK(6), which matches the example. So that's correct.
-
-Another test case: \`identical({}, 0)\`. Should return -1 because val is not present. What if all keys have the same value, say \`{2:5,3:5}\`. Val is 5. The keys are \`[2,3]\`, difference is BLANK(1). Yes, that's correct. I think this should cover all cases`;
+  // Get current AI text from question
+  const aiText = currentQuestion?.content || "";
 
   // Main state
   const [currentPosition, setCurrentPosition] = useState(0);
@@ -103,6 +95,34 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
   // Performance tracking
   const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
   const [isContentComplete, setIsContentComplete] = useState(false);
+
+  // Fetch all questions on component mount
+  useEffect(() => {
+    const fetchQuestions = async () => {
+      setIsLoadingQuestions(true);
+      try {
+        const response = await fetch("/api/questions");
+        if (!response.ok) {
+          throw new Error("Failed to fetch questions");
+        }
+        const data = await response.json();
+        
+        setAllQuestions(data.questions);
+        
+        // Auto-load first question if available
+        if (data.questions.length > 0) {
+          setCurrentQuestion(data.questions[0]);
+          setCurrentQuestionIndex(0);
+        }
+      } catch (error) {
+        console.error("Error fetching questions:", error);
+      } finally {
+        setIsLoadingQuestions(false);
+      }
+    };
+
+    fetchQuestions();
+  }, []);
 
   // Helper functions
   const getCurrentParagraphContext = (): string => {
@@ -268,7 +288,28 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
     setIsContentComplete(false);
   };
 
+  const handleNextQuestion = () => {
+    // Only allow if current question is complete
+    if (isContentComplete && currentQuestionIndex < allQuestions.length - 1) {
+      const nextIndex = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextIndex);
+      setCurrentQuestion(allQuestions[nextIndex]);
+      handleReset(); // Reset all states for new question
+    }
+  };
+
+  const handlePreviousQuestion = () => {
+    if (currentQuestionIndex > 0) {
+      const prevIndex = currentQuestionIndex - 1;
+      setCurrentQuestionIndex(prevIndex);
+      setCurrentQuestion(allQuestions[prevIndex]);
+      handleReset(); // Reset all states for new question
+    }
+  };
+
   const handlePlayPause = () => {
+    if (!currentQuestion) return;
+    
     if (
       !isTyping &&
       currentPosition >= aiText.length &&
@@ -280,7 +321,20 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
   };
 
   const handleParagraphFeedback = (understood: boolean) => {
+    const accordionId = `${currentPosition}`;
+    const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
+
     if (understood) {
+      // Store the feedback immediately for "understood" responses
+      const newAccordion: ParagraphAccordion = {
+        id: accordionId,
+        position: currentPosition,
+        chatMessages: [],
+        paragraphContext: fullContextUpToNow || "No previous content available",
+        userFeedback: "understood"
+      };
+      setParagraphAccordions((prev) => [...prev, newAccordion]);
+
       setParagraphFeedbackMessage("Great! Continuing...");
       setTimeout(() => {
         setParagraphFeedbackMessage("");
@@ -289,9 +343,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         setIsTyping(true);
       }, 300);
     } else {
-      const accordionId = `${currentPosition}`;
-      const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
-
+      // For "did not understand", create accordion for interaction
       console.log("Storing full context:", fullContextUpToNow);
 
       const newAccordion: ParagraphAccordion = {
@@ -299,6 +351,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         position: currentPosition,
         chatMessages: [],
         paragraphContext: fullContextUpToNow || "No previous content available",
+        userFeedback: "did_not_understand"
       };
       setParagraphAccordions((prev) => [...prev, newAccordion]);
       setCurrentAccordionId(accordionId);
@@ -380,6 +433,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
   };
 
   const handleContinueAfterChat = () => {
+    // The accordion already has the feedback stored, just continue
     setParagraphFeedbackMessage("Thanks for the questions! Continuing...");
     setTimeout(() => {
       setParagraphFeedbackMessage("");
@@ -456,7 +510,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
 
   // Main typing effect
   useEffect(() => {
-    if (!isTyping) return;
+    if (!isTyping || !currentQuestion) return;
 
     if (currentPosition >= aiText.length && !getNextSegment(1).isBlank) {
       setIsTyping(false);
@@ -499,7 +553,7 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
     }, TYPING_INTERVAL_MS);
 
     return () => clearInterval(intervalId);
-  }, [isTyping, currentPosition]);
+  }, [isTyping, currentPosition, currentQuestion]);
 
   const animatedRevealedText = useAnimatedTextDisplay(
     revealedText,
@@ -521,6 +575,22 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
     }
   };
 
+  if (isLoadingQuestions) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div>No questions available</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white p-8">
       <div className="flex justify-between items-center mb-6">
@@ -532,6 +602,64 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
           Logout
         </button>
       </div>
+
+      {/* Question Navigation */}
+      <div className="mb-6 flex items-center justify-between bg-gray-800 rounded-lg p-4">
+        <div>
+          <h2 className="text-xl font-semibold">{currentQuestion.question}</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Question {currentQuestionIndex + 1} of {allQuestions.length}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {currentQuestionIndex > 0 && (
+            <button
+              onClick={handlePreviousQuestion}
+              className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium"
+            >
+              Previous
+            </button>
+          )}
+          {currentQuestionIndex < allQuestions.length - 1 && (
+            <button
+              onClick={handleNextQuestion}
+              disabled={!isContentComplete}
+              className={`px-4 py-2 rounded font-medium ${
+                !isContentComplete
+                  ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                  : "bg-blue-500 hover:bg-blue-700 text-white"
+              }`}
+              title={!isContentComplete ? "Complete the current question first" : ""}
+            >
+              Next
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Show "Next Question" button when current question is completed */}
+      {isContentComplete && currentQuestionIndex < allQuestions.length - 1 && (
+        <div className="mb-6 p-4 bg-green-800 rounded-lg flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-green-200">Question Complete!</h3>
+            <p className="text-green-300">Ready to move to the next question?</p>
+          </div>
+          <button
+            onClick={handleNextQuestion}
+            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded"
+          >
+            Next Question →
+          </button>
+        </div>
+      )}
+
+      {/* Show completion message when all questions are done */}
+      {isContentComplete && currentQuestionIndex >= allQuestions.length - 1 && (
+        <div className="mb-6 p-4 bg-purple-800 rounded-lg text-center">
+          <h3 className="text-lg font-semibold text-purple-200">🎉 All Questions Complete!</h3>
+          <p className="text-purple-300">You've finished all available questions. Great job!</p>
+        </div>
+      )}
 
       <div className="mt-6">
         <button
@@ -558,6 +686,38 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
             text={animatedRevealedText}
             paragraphAccordions={paragraphAccordions}
             currentAccordionId={currentAccordionId}
+            // Pass the readonly feedback component as a prop
+            renderReadonlyFeedback={(accordion: ParagraphAccordion) => (
+              <div className="mb-4 p-3 bg-gray-800 rounded-lg border-l-4 border-blue-500">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`w-3 h-3 rounded-full ${
+                    accordion.userFeedback === "understood" ? "bg-green-500" : "bg-yellow-500"
+                  }`}></div>
+                  <span className="text-sm font-medium text-gray-300">
+                    Your Response: 
+                    <span className={`ml-2 ${
+                      accordion.userFeedback === "understood" ? "text-green-400" : "text-yellow-400"
+                    }`}>
+                      {accordion.userFeedback === "understood" ? "✓ I understand" : "❓ I did not understand"}
+                    </span>
+                  </span>
+                </div>
+                
+                {/* Show chat history if they asked questions */}
+                {accordion.chatMessages.length > 0 && (
+                  <div className="mt-3 pl-4 border-l-2 border-gray-600">
+                    <div className="text-xs text-gray-500 mb-2">Chat History:</div>
+                    {accordion.chatMessages.map((msg, index) => (
+                      <div key={index} className={`mb-2 text-sm ${
+                        msg.role === "user" ? "text-blue-300" : "text-gray-300"
+                      }`}>
+                        <strong>{msg.role === "user" ? "You" : "AI"}:</strong> {msg.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           />
 
           {/* Paragraph feedback */}

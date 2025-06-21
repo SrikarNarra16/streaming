@@ -8,6 +8,13 @@
       "when": 1750492603656,
       "tag": "0000_abnormal_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1750493560979,
+      "tag": "0001_legal_bastion",
+      "breakpoints": true
     }
   ]
 }

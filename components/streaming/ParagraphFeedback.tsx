@@ -59,8 +59,7 @@ export function ParagraphFeedback({
           setCurrentChatInput={setCurrentChatInput}
           onSubmit={onChatSubmit}
           isLoadingResponse={isLoadingResponse}
-          onContinue={onContinueAfterChat}
-          isReadOnly={false}
+          onContinue={onContinueAfterChat} // Add this prop
         />
       )}
 

@@ -9,6 +9,7 @@ interface ParagraphAccordion {
   position: number;
   chatMessages: Array<{ role: "user" | "ai"; message: string }>;
   paragraphContext: string;
+  userFeedback?: "understood" | "did_not_understand";
 }
 
 interface TextRendererProps {
@@ -78,7 +79,7 @@ export function TextRenderer({
 
   // Filter out the currently active accordion to prevent duplication
   const completedAccordions = paragraphAccordions.filter(
-    (accordion) => accordion.id !== currentAccordionId
+    (accordion) => accordion.id !== currentAccordionId && accordion.userFeedback
   );
 
   if (completedAccordions.length === 0) {
@@ -109,20 +110,36 @@ export function TextRenderer({
       );
     }
 
-    // Add the accordion (read-only version)
-    result.push(
-      <div key={accordion.id} className="my-4">
-        <ChatAccordion
-          accordionId={accordion.id}
-          chatMessages={accordion.chatMessages}
-          currentChatInput=""
-          setCurrentChatInput={() => {}}
-          onSubmit={() => {}}
-          isLoadingResponse={false}
-          isReadOnly={true}
-        />
-      </div>
-    );
+    // Add the readonly feedback
+    if (accordion.userFeedback === "understood") {
+      // Simple feedback for "understood"
+      result.push(
+        <div key={accordion.id} className="my-4 p-3 bg-gray-800 rounded-lg border-l-4 border-green-500">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            <span className="text-sm font-medium text-green-400">
+              Your Response: ✓ I understand
+            </span>
+          </div>
+        </div>
+      );
+    } else {
+      // Accordion for "did not understand" with chat history
+      result.push(
+        <div key={accordion.id} className="my-4">
+          <ChatAccordion
+            accordionId={accordion.id}
+            chatMessages={accordion.chatMessages}
+            currentChatInput=""
+            setCurrentChatInput={() => {}}
+            onSubmit={() => {}}
+            isLoadingResponse={false}
+            isReadOnly={true}
+            userFeedback="did_not_understand"
+          />
+        </div>
+      );
+    }
 
     lastIndex = accordion.position;
   });
