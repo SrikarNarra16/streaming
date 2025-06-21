@@ -3,6 +3,13 @@
 // ---------------------------------------------------------------------------
 
 // TODO: Logging, Login, and DB
+// Add question on the top and to the chat
+// Add conversation history to the chat
+// After each paragraph answer of the user to the feedback readonly
+// Make more prominent: 3 ✗ (Correct Answer: 6)
+// After thinking show the actual AI response
+// Performace: Add how many times they said I did not understand
+// Readme add paragraphs details and code formatting
 
 // ---------------------------------------------------------------------------
 import React, { useEffect, useRef, useState } from "react";

@@ -7,7 +7,7 @@ export async function POST(request: Request) {
 
     const openai = new OpenAI({
       baseURL: "https://api.deepseek.com",
-      apiKey: process.env.DEEPSEEK_API_KEY, // Use server-side env variable
+      apiKey: process.env.DEEPSEEK_API_KEY,
     });
 
     let systemPrompt = "";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
     if (type === "explanation_chat") {
       // For explanation chat questions
-      systemPrompt = `You are a helpful AI tutor. A student is reading through an explanation and has asked a question about a specific part. Your goal is to:
+      systemPrompt = `You are a helpful AI coding tutor. A student is reading through an explanation and has asked a question about a specific part. Your goal is to:
 
 1. Provide clear, helpful explanations
 2. Use simple language and examples when needed
@@ -43,7 +43,7 @@ Please provide a helpful response that clarifies their doubt about this explanat
         { role: "user", content: userPrompt },
       ],
       temperature: 0.7,
-      max_tokens: 500, // Keep responses reasonably sized
+      max_tokens: 500,
     });
 
     return NextResponse.json({
