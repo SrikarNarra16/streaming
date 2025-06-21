@@ -6,12 +6,23 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    router.push("/streaming");
+    // Check if user is authenticated
+    fetch("/api/auth/me")
+      .then((res) => {
+        if (res.ok) {
+          router.push("/streaming");
+        } else {
+          router.push("/auth/login");
+        }
+      })
+      .catch(() => {
+        router.push("/auth/login");
+      });
   }, [router]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <p>Redirecting to streaming...</p>
+    <div className="flex items-center justify-center min-h-screen bg-black text-white">
+      <p>Loading...</p>
     </div>
   );
 }

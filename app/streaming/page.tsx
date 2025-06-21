@@ -512,9 +512,26 @@ Another test case: \`identical({}, 0)\`. Should return -1 because val is not pre
         ?.chatMessages || []
     : [];
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.href = "/auth/login";
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white p-8">
-      <h1 className="text-3xl font-bold mb-6">AI Thinking</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">AI Thinking</h1>
+        <button
+          onClick={handleLogout}
+          className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+        >
+          Logout
+        </button>
+      </div>
 
       <div className="mt-6">
         <button
