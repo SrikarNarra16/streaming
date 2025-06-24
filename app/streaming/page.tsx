@@ -1,18 +1,9 @@
 "use client";
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------
 
-// TODO: Logging, Login, and DB (DONE)
-// Add question on the top and to the chat (DONE)
-// Add conversation history to the chat
-// After each paragraph answer of the user to the feedback readonly
-// Make more prominent: 3 ✗ (Correct Answer: 6)
-// After thinking show the actual AI response
-
-// ---------------------------------------------------------------------------
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
-
 import { BlankInput } from "@/components/streaming/BlankInput";
 import { ParagraphFeedback } from "@/components/streaming/ParagraphFeedback";
 import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
