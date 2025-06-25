@@ -1,20 +1,6 @@
 "use client";
 
-//--------------------------------------------------------------------------
-// Stream the output of chat (DONE)
-// Make 5xl width max (DONE)
-// Add conversation history... (DONE)
-// Auto scroll when new stream output (DONE)
-// Atleast 5 setences for a paragraph -- keep going on until 5 sentences.. (DONE)
-// FInal AI solution (DONE)
-// Box or something to make the user know this is a question
-// Next question at the bottom (DONE)
-// Done option when questions done (DONE)
-// Add user in logs for everything (DONE)
-// Modify reset-db to add questions also...
-// Show success message when regsitered (DONE)
-// 3 questions with blanks..
-// OLD DB transfer to supabase
+
 
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
