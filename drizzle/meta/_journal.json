@@ -127,6 +127,13 @@
       "when": 1750498457393,
       "tag": "0017_red_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1750782230346,
+      "tag": "0018_loose_nico_minoru",
+      "breakpoints": true
     }
   ]
 }

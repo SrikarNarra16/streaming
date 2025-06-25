@@ -1,6 +1,5 @@
 "use client";
 
-// --------------------------------------------------------------------------
 
 import React, { useEffect, useRef, useState } from "react";
 import { animate, useMotionValue } from "framer-motion";
@@ -13,6 +12,7 @@ interface Question {
   id: number;
   question: string;
   content: string;
+  answer: string;
 }
 
 interface ThinkingSegment {
@@ -37,12 +37,27 @@ interface BlankResponse {
   position: number;
 }
 
+// Add this function near the top of your component
+const logUserAction = async (action: string, details: any = {}) => {
+  try {
+    await fetch("/api/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, details }),
+    });
+  } catch (error) {
+    console.error("Failed to log action:", error);
+  }
+};
+
 const TYPING_INTERVAL_MS = 100;
 const CHARS_PER_TYPE_INTERVAL = 30;
 const ANIMATION_CHARS_PER_SECOND = 30;
 const FEEDBACK_DURATION_MS = 1500;
 
 function StreamingPage() {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
   // Question state
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -51,6 +66,8 @@ function StreamingPage() {
 
   // Get current AI text from question
   const aiText = currentQuestion?.content || "";
+  // Get current answer from question
+  const answerText = currentQuestion?.answer || "";
 
   // Main state
   const [currentPosition, setCurrentPosition] = useState(0);
@@ -84,6 +101,13 @@ function StreamingPage() {
   // Performance tracking
   const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
   const [isContentComplete, setIsContentComplete] = useState(false);
+
+  // Auto-scroll to bottom when content changes or feedback appears
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [isContentComplete, revealedText, currentQuestionIndex, isWaitingForParagraphFeedback, paragraphFeedbackMessage]);
 
   // Fetch all questions on component mount
   useEffect(() => {
@@ -379,6 +403,29 @@ function StreamingPage() {
     }
   };
 
+  // Streaming AI chat response
+  async function getChatResponseStream(userMessage: string, context: string, conversationHistory: Array<{ role: "user" | "ai"; message: string }>, onChunk: (chunk: string) => void) {
+    const response = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: userMessage, context, type: "explanation_chat", conversationHistory }),
+    });
+
+    if (!response.body) throw new Error("No response body");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let aiText = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      aiText += decoder.decode(value, { stream: true });
+      onChunk(aiText);
+    }
+    return aiText;
+  }
+
   const handleChatSubmit = async (accordionId: string) => {
     if (!currentChatInput.trim() || isLoadingResponse) return;
 
@@ -417,26 +464,44 @@ function StreamingPage() {
       )
     );
 
-    try {
-      // Pass conversation history to the AI
-      const aiResponse = await getChatResponse(
+      try {
+        // Streaming AI response
+        // Add an empty AI message as a placeholder for streaming
+        setParagraphAccordions((prev) =>
+          prev.map((accordion) =>
+            accordion.id === accordionId
+              ? {
+                  ...accordion,
+                  chatMessages: [
+                    ...accordion.chatMessages,
+                    { role: "ai", message: "" },
+                  ],
+                }
+              : accordion
+          )
+        );
+
+      // Stream chunks and update the last AI message in real time
+      await getChatResponseStream(
         userMessage,
         context,
-        conversationHistory
-      );
-
-      setParagraphAccordions((prev) =>
-        prev.map((accordion) =>
-          accordion.id === accordionId
-            ? {
-                ...accordion,
-                chatMessages: [
-                  ...accordion.chatMessages,
-                  { role: "ai", message: aiResponse },
-                ],
-              }
-            : accordion
-        )
+        conversationHistory,
+        (streamedText: string) => {
+          setParagraphAccordions((prev) =>
+            prev.map((accordion) =>
+              accordion.id === accordionId
+                ? {
+                    ...accordion,
+                    chatMessages: accordion.chatMessages.map((msg, idx, arr) =>
+                      idx === arr.length - 1 && msg.role === "ai"
+                        ? { ...msg, message: streamedText }
+                        : msg
+                    ),
+                  }
+                : accordion
+            )
+          );
+        }
       );
     } catch (error) {
       setParagraphAccordions((prev) =>
@@ -539,12 +604,18 @@ function StreamingPage() {
     }, FEEDBACK_DURATION_MS);
   };
 
-  const handleAnimationComplete = () => {
-    if (isPreparingForBlank) {
-      setIsWaitingForBlankFill(true);
-      setIsPreparingForBlank(false);
-    }
-  };
+  // Helper to count sentences in a paragraph
+function countSentences(paragraph: string): number {
+  // This is a basic splitter; improve as needed
+  return paragraph.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
+}
+
+const handleAnimationComplete = () => {
+  if (isPreparingForBlank) {
+    setIsWaitingForBlankFill(true);
+    setIsPreparingForBlank(false);
+  }
+};
 
   // Main typing effect
   useEffect(() => {
@@ -571,8 +642,17 @@ function StreamingPage() {
           );
           setRevealedText((prev) => prev + textUpToParagraph);
           setCurrentPosition(currentPosition + textUpToParagraph.length);
-          setIsTyping(false);
-          setIsWaitingForParagraphFeedback(true);
+
+          // Only show feedback if paragraph has >= 5 sentences
+          const para = (revealedText + textUpToParagraph).split("\n\n").slice(-2, -1)[0] || (revealedText + textUpToParagraph);
+          if (countSentences(para) >= 5) {
+            setIsTyping(false);
+            setIsWaitingForParagraphFeedback(true);
+          } else {
+            // Skip feedback, auto-continue to next paragraph
+            setIsTyping(true);
+            setIsWaitingForParagraphFeedback(false);
+          }
         } else {
           setRevealedText((prev) => prev + segment.text);
           setCurrentPosition(segment.newPosition || currentPosition);
@@ -644,6 +724,7 @@ function StreamingPage() {
 
   return (
     <div className="min-h-screen bg-black text-white p-8">
+      <div className="max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold">AI Thinking</h1>
         <button
@@ -655,73 +736,18 @@ function StreamingPage() {
       </div>
 
       {/* Question Navigation */}
-      <div className="mb-6 flex items-center justify-between bg-gray-800 rounded-lg p-4">
-        <div>
-          <h2 className="text-xl font-semibold">{currentQuestion.question}</h2>
-          <p className="text-sm text-gray-400 mt-1">
-            Question {currentQuestionIndex + 1} of {allQuestions.length}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {currentQuestionIndex > 0 && (
-            <button
-              onClick={handlePreviousQuestion}
-              className="bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium"
-            >
-              Previous
-            </button>
-          )}
-          {currentQuestionIndex < allQuestions.length - 1 && (
-            <button
-              onClick={handleNextQuestion}
-              disabled={!isContentComplete}
-              className={`px-4 py-2 rounded font-medium ${
-                !isContentComplete
-                  ? "bg-gray-600 text-gray-400 cursor-not-allowed"
-                  : "bg-blue-500 hover:bg-blue-700 text-white"
-              }`}
-              title={
-                !isContentComplete ? "Complete the current question first" : ""
-              }
-            >
-              Next
-            </button>
-          )}
-        </div>
-      </div>
+      <div className="mb-6 bg-gray-800 rounded-lg p-4">
+  <h2 className="text-xl font-semibold mb-2">Question</h2>
+  <div className="whitespace-pre-line question-text text-lg text-white mb-2">{currentQuestion.question}</div>
+  <p className="text-sm text-gray-400 mt-1">
+    Question {currentQuestionIndex + 1} of {allQuestions.length}
+  </p>
+</div>
 
-      {/* Show "Next Question" button when current question is completed */}
-      {isContentComplete && currentQuestionIndex < allQuestions.length - 1 && (
-        <div className="mb-6 p-4 bg-green-800 rounded-lg flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-green-200">
-              Question Complete!
-            </h3>
-            <p className="text-green-300">
-              Ready to move to the next question?
-            </p>
-          </div>
-          <button
-            onClick={handleNextQuestion}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded"
-          >
-            Next Question →
-          </button>
-        </div>
-      )}
+
 
       {/* Show completion message when all questions are done */}
-      {isContentComplete && currentQuestionIndex >= allQuestions.length - 1 && (
-        <div className="mb-6 p-4 bg-purple-800 rounded-lg text-center">
-          <h3 className="text-lg font-semibold text-purple-200">
-            🎉 All Questions Complete!
-          </h3>
-          <p className="text-purple-300">
-            You've finished all available questions. Great job!
-          </p>
-        </div>
-      )}
-
+      
       <div className="mt-6">
         <button
           onClick={handlePlayPause}
@@ -841,7 +867,56 @@ function StreamingPage() {
           isContentComplete={isContentComplete}
         />
       </div>
+
+        
+     
+      {/* Show the answer at the end after aiText is complete */}
+      
+      {isContentComplete && answerText && (
+        <>
+        <div className="h-1 bg-gray-800 my-6"></div>
+        <div className="mt-8 p-6 rounded-lg">
+          <h3 className="text-xl font-bold mb-2">Answer</h3>
+          <div className="text-white text-lg whitespace-pre-line">
+  <TextRenderer text={answerText} paragraphAccordions={[]} currentAccordionId={null} />
+</div>
+        </div>
+        </>
+      )}
+      {isContentComplete && currentQuestionIndex < allQuestions.length - 1 && (
+          <div className="mb-6 p-4 bg-green-800 rounded-lg flex items-center justify-between mt-12">
+            <div>
+              <h3 className="text-lg font-semibold text-green-200">
+                Question Complete!
+              </h3>
+              <p className="text-green-300">
+                Ready to move to the next question?
+              </p>
+            </div>
+            <button
+              onClick={handleNextQuestion}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded"
+            >
+              Next Question →
+            </button>
+          </div>
+        )}
+
+        {isContentComplete && currentQuestionIndex >= allQuestions.length - 1 && (
+        <div className="mb-6 p-4 bg-purple-800 rounded-lg text-center">
+          <h3 className="text-lg font-semibold text-purple-200">
+            🎉 All Questions Complete!
+          </h3>
+          <p className="text-purple-300">
+            You've finished all available questions. Great job!
+          </p>
+        </div>
+      )}
+
+        <div ref={bottomRef} />
     </div>
+    </div>
+
   );
 }
 

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     });
 
     let systemPrompt = "";
-    let messages = [];
+    let messages: OpenAI.ChatCompletionMessageParam[] = [];
 
     if (type === "explanation_chat") {
       // For explanation chat questions
@@ -58,9 +58,11 @@ ${context}`;
       // Add conversation history if provided
       if (conversationHistory && Array.isArray(conversationHistory)) {
         conversationHistory.forEach((msg) => {
-          if (msg.role === "user" || msg.role === "assistant") {
+          let role: "user" | "assistant" = msg.role;
+          if (msg.role === "ai") role = "assistant";
+          if (role === "user" || role === "assistant") {
             messages.push({
-              role: msg.role,
+              role,
               content: msg.message,
             });
           }
@@ -80,29 +82,48 @@ ${context}`;
       ];
     }
 
-    const response = await openai.chat.completions.create({
+    // Enable streaming from DeepSeek/OpenAI
+    const completion = await openai.chat.completions.create({
       model: "deepseek-chat",
       messages,
       temperature: 0.7,
       max_tokens: 500,
+      stream: true,
     });
 
-    const content = response.choices[0].message.content;
+    // Create a ReadableStream to pipe chunks to the client
+    const stream = new ReadableStream({
+      async start(controller) {
+        let fullContent = "";
+        for await (const chunk of completion) {
+          const delta = chunk.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            controller.enqueue(delta);
+            fullContent += delta;
+          }
+        }
+        controller.close();
+        // Optionally log the full response after streaming
+        await logger.info(
+          "ai_generate_success",
+          {
+            type,
+            userQuestion: prompt,
+            aiResponse: fullContent,
+            responseLength: fullContent.length,
+            conversationLength: conversationHistory?.length || 0,
+          },
+          userId
+        );
+      }
+    });
 
-    await logger.info(
-      "ai_generate_success",
-      {
-        type,
-        userQuestion: prompt,
-        aiResponse: content,
-        responseLength: content?.length,
-        conversationLength: conversationHistory?.length || 0,
-      },
-      userId
-    );
-
-    return NextResponse.json({
-      content: content,
+    return new NextResponse(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache"
+      }
     });
   } catch (error: any) {
     const cookieStore = await cookies();

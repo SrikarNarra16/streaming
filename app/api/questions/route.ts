@@ -19,7 +19,12 @@ export async function GET() {
     await logger.info("questions_fetched", {}, userId);
 
     const allQuestions = await db
-      .select()
+      .select({
+        id: questions.id,
+        question: questions.question,
+        content: questions.content,
+        answer: questions.answer,
+      })
       .from(questions)
       .orderBy(questions.id);
 

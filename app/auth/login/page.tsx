@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export default function Login() {
@@ -10,6 +10,8 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const message = searchParams.get("message");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +49,11 @@ export default function Login() {
           <h2 className="text-3xl font-bold text-center">Sign In</h2>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {message === "Registration successful" && (
+            <div className="bg-green-500 text-white p-3 rounded">
+              Registration successful. Please login.
+            </div>
+          )}
           {error && (
             <div className="bg-red-500 text-white p-3 rounded">
               {error}

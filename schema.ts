@@ -20,6 +20,7 @@ export const questions = pgTable("questions", {
   id: serial("id").primaryKey(),
   question: text("question").notNull(),
   content: text("content").notNull(),
+  answer: text("answer").notNull(),
 });
 
 // Fix logs table to match logger expectations
