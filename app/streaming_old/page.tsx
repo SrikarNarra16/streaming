@@ -1,4 +1,3 @@
-// app/streaming_old/page.tsx (PRODUCTION READY - AI INTEGRATED WITH DB FETCHING)
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
@@ -48,6 +47,67 @@ const markdownComponents = {
     },
 };
 
+// MODERN: Enhanced BlankInput Component with better styling
+function ModernBlankInput({ 
+    userInput, 
+    setUserInput, 
+    onSubmit, 
+    currentBlankAnswer, 
+    feedbackMessage 
+}: {
+    userInput: string;
+    setUserInput: (value: string) => void;
+    onSubmit: () => void;
+    currentBlankAnswer: string;
+    feedbackMessage: string;
+}) {
+    return (
+        <div className="my-6 p-6 bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/30 rounded-xl backdrop-blur-sm">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">?</span>
+                </div>
+                <h3 className="text-lg font-semibold text-blue-300">Fill in the blank</h3>
+            </div>
+            
+            <div className="space-y-4">
+                <div className="flex gap-3">
+                    <input
+                        type="text"
+                        value={userInput}
+                        onChange={(e) => setUserInput(e.target.value)}
+                        onKeyPress={(e) => e.key === "Enter" && onSubmit()}
+                        placeholder="Type your answer here..."
+                        className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                        autoFocus
+                    />
+                    <button
+                        onClick={onSubmit}
+                        disabled={!userInput.trim()}
+                        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:opacity-50 text-white font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                    >
+                        Submit
+                    </button>
+                </div>
+                
+                {feedbackMessage && (
+                    <div className={`p-3 rounded-lg text-center font-medium ${
+                        feedbackMessage.includes("✓") 
+                            ? "bg-green-900/30 text-green-300 border border-green-500/30" 
+                            : "bg-red-900/30 text-red-300 border border-red-500/30"
+                    }`}>
+                        {feedbackMessage}
+                    </div>
+                )}
+                
+                <div className="text-sm text-slate-400 text-center">
+                    💡 Hint: Expected answer length is approximately {currentBlankAnswer?.length || 0} characters
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function StreamingPage() {
     // NEW: Question state
     const [allQuestions, setAllQuestions] = useState<Question[]>([]);
@@ -81,6 +141,9 @@ function StreamingPage() {
     const [userInput, setUserInput] = useState("");
     const [feedbackMessage, setFeedbackMessage] = useState("");
     const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
+    
+    // NEW: Track if we just completed a blank to skip feedback
+    const [justCompletedBlank, setJustCompletedBlank] = useState(false);
 
     // Chat accordion state
     const [activeAccordion, setActiveAccordion] = useState<ParagraphAccordion | null>(null);
@@ -145,34 +208,30 @@ function StreamingPage() {
             
             const chunk = decoder.decode(value, { stream: true });
             aiText += chunk;
-            onChunk(aiText); // Pass the accumulated text, not just the chunk
+            onChunk(aiText);
         }
         return aiText;
     }
 
     // Helper function to get current context
     const getCurrentParagraphContext = () => {
-        const questionText = currentQuestion?.question || "";
         const allCompletedText = completedParagraphs.join("\n\n");
         const currentText = currentParagraph || displayedCurrentParagraph;
-
-        let context = "";
-        if (questionText) context += `Question: ${questionText}\n\n`;
+        
         if (allCompletedText && currentText) {
-            context += `${allCompletedText}\n\n${currentText}`;
+            return `${allCompletedText}\n\n${currentText}`;
         } else if (allCompletedText) {
-            context += allCompletedText;
+            return allCompletedText;
         } else if (currentText) {
-            context += currentText;
+            return currentText;
         }
-        if (!context) context = "No context available";
-        return context;
+        return "No context available";
     };
 
-    // --- STREAMING LOGIC ---
+    // --- STREAMING LOGIC --- [FIXED BLANK DETECTION]
     useEffect(() => {
-        if (!isTyping || isPaused || aiText.length === 0 || textPosition >= aiText.length) {
-            if (aiText.length > 0 && textPosition >= aiText.length) {
+        if (!isTyping || isPaused || textPosition >= aiText.length) {
+            if (textPosition >= aiText.length && aiText.length > 0) {
                 setIsContentComplete(true);
                 setIsStreamingSessionActive(false);
                 setIsTyping(false);
@@ -183,27 +242,37 @@ function StreamingPage() {
         const intervalId = setInterval(() => {
             const remainingText = aiText.slice(textPosition);
             
-            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/);
+            // FIXED: Better BLANK detection - check at the start of remaining text
+            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
             if (blankMatch) {
                 const answer = blankMatch[1];
                 const fullBlankTag = blankMatch[0];
+                
+                console.log("BLANK detected:", { answer, fullBlankTag, textPosition });
+                
+                // Set up for user input - DON'T add the BLANK text to currentParagraph
                 setCurrentBlankAnswer(answer);
                 setIsTyping(false);
                 setIsWaitingForBlankFill(true);
+                
+                // Move position past the BLANK tag WITHOUT adding it to the paragraph
                 setTextPosition(prev => prev + fullBlankTag.length);
                 return;
             }
 
+            // Check for paragraph breaks
             const paragraphBreakIndex = remainingText.indexOf("\n\n");
             let chunk = "";
             
-            if (paragraphBreakIndex !== -1) {
+            if (paragraphBreakIndex !== -1 && paragraphBreakIndex < CHARS_PER_TYPE_INTERVAL) {
+                // Found paragraph break within next chunk
                 chunk = remainingText.slice(0, paragraphBreakIndex);
                 setCurrentParagraph(prev => prev + chunk);
-                setTextPosition(prev => prev + chunk.length + 2);
+                setTextPosition(prev => prev + chunk.length + 2); // +2 for \n\n
                 setIsTyping(false);
                 return;
             } else {
+                // Process normal text in chunks
                 chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
                 setCurrentParagraph(prev => prev + chunk);
                 setTextPosition(prev => prev + chunk.length);
@@ -213,12 +282,21 @@ function StreamingPage() {
         return () => clearInterval(intervalId);
     }, [isTyping, isPaused, textPosition, aiText]);
 
-    // --- DISPLAY ANIMATION ---
+    // --- DISPLAY ANIMATION --- [FIXED TO SKIP FEEDBACK AFTER BLANK]
     useEffect(() => {
         if (isPaused || displayPosition >= currentParagraph.length) {
             if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
                 setTimeout(() => {
-                    setIsWaitingForFeedback(true);
+                    // FIXED: Skip feedback if we just completed a blank
+                    if (justCompletedBlank) {
+                        setJustCompletedBlank(false);
+                        // Continue streaming immediately
+                        if (!isPaused) {
+                            setIsTyping(true);
+                        }
+                    } else {
+                        setIsWaitingForFeedback(true);
+                    }
                 }, 200);
             }
             return;
@@ -233,7 +311,7 @@ function StreamingPage() {
         }, TYPING_INTERVAL_MS);
 
         return () => clearInterval(intervalId);
-    }, [currentParagraph, displayPosition, isPaused, isTyping]);
+    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank]);
 
     useEffect(() => {
         if (currentParagraph === "") {
@@ -244,7 +322,7 @@ function StreamingPage() {
 
     // --- EVENT HANDLERS ---
     const handlePlayPause = () => {
-        if (!currentQuestion) return; // NEW: Don't allow if no question loaded
+        if (!currentQuestion) return;
 
         if (!isStreamingSessionActive && !isContentComplete) {
             setIsStreamingSessionActive(true);
@@ -280,6 +358,7 @@ function StreamingPage() {
         setFeedbackMessage("");
         setBlankResponses([]);
         setActiveAccordion(null);
+        setJustCompletedBlank(false); // NEW: Reset blank completion flag
     };
 
     const handleParagraphFeedback = (understood: boolean) => {
@@ -373,7 +452,6 @@ function StreamingPage() {
         bottomRef.current.scrollIntoView({ behavior: "smooth" });
       }
     }, [
-      // Add all dependencies that change when new content is added
       activeAccordion?.chatMessages,
       completedContent,
       currentParagraph,
@@ -383,7 +461,6 @@ function StreamingPage() {
       isWaitingForFeedback,
     ]);
 
-    // FIXED: Chat submit handler
     const handleChatSubmit = async (accordionId: string) => {
         if (!currentChatInput.trim() || isLoadingResponse || !activeAccordion) return;
 
@@ -391,31 +468,24 @@ function StreamingPage() {
         setCurrentChatInput("");
         setIsLoadingResponse(true);
 
-        // Get context - use the accordion's context or current context
         let context = activeAccordion.paragraphContext;
         if (!context || context.trim() === "" || context === "Context placeholder") {
             context = getCurrentParagraphContext();
         }
 
-        console.log("Using context for chat:", context.slice(0, 200) + "...");
-
-        // Get conversation history
         const conversationHistory = activeAccordion.chatMessages || [];
 
-        // Add user message immediately
         setActiveAccordion(prev => prev ? {
             ...prev,
             chatMessages: [...prev.chatMessages, { role: "user", message: userMessage }]
         } : null);
 
         try {
-            // Add placeholder AI message for streaming
             setActiveAccordion(prev => prev ? {
                 ...prev,
                 chatMessages: [...prev.chatMessages, { role: "ai", message: "" }]
             } : null);
 
-            // Stream AI response
             await getChatResponseStream(
                 userMessage,
                 context,
@@ -454,14 +524,21 @@ function StreamingPage() {
         }
     };
 
+    // ENHANCED: Modern blank input submit handler [FIXED TO SKIP FEEDBACK]
     const handleUserInputSubmit = () => {
         if (!userInput.trim() || !currentBlankAnswer) return;
         const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
         
-        setBlankResponses(prev => [...prev, { userAnswer: userInput.trim(), correctAnswer: currentBlankAnswer, isCorrect, position: textPosition }]);
+        setBlankResponses(prev => [...prev, { 
+            userAnswer: userInput.trim(), 
+            correctAnswer: currentBlankAnswer, 
+            isCorrect, 
+            position: textPosition 
+        }]);
         
-        setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Incorrect!");
+        setFeedbackMessage(isCorrect ? "✓ Correct! Well done!" : "✗ Incorrect. Try again next time!");
         
+        // Add the user's answer to the paragraph with feedback
         const answerText = isCorrect
             ? `**${userInput.trim()}** ✓`
             : `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
@@ -473,15 +550,21 @@ function StreamingPage() {
             setFeedbackMessage("");
             setUserInput("");
             setCurrentBlankAnswer(null);
+            setJustCompletedBlank(true); // NEW: Set flag to skip feedback
             if (!isPaused) {
                 setIsTyping(true);
             }
         }, FEEDBACK_DURATION_MS);
     };
 
+    // FIXED: Button state logic
     const getButtonState = () => {
-        if (isContentComplete) {
+        if (isContentComplete && aiText.length > 0) {
             return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
+        }
+        
+        if (!currentQuestion || aiText.length === 0) {
+            return { text: "Loading...", color: "bg-gray-500", disabled: true };
         }
         
         if (!isStreamingSessionActive) {
@@ -501,7 +584,10 @@ function StreamingPage() {
     if (isLoadingQuestions) {
         return (
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
-                <div>Loading questions...</div>
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <div>Loading questions...</div>
+                </div>
             </div>
         );
     }
@@ -509,7 +595,10 @@ function StreamingPage() {
     if (!currentQuestion) {
         return (
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
-                <div>No questions available</div>
+                <div className="text-center">
+                    <div className="text-red-400 text-xl mb-2">⚠️</div>
+                    <div>No questions available</div>
+                </div>
             </div>
         );
     }
@@ -517,30 +606,53 @@ function StreamingPage() {
     return (
         <div className="min-h-screen bg-black text-white p-8">
             <div className="max-w-6xl mx-auto">
-                <h1 className="text-3xl font-bold mb-6">AI Thinking</h1>
+                <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    AI Thinking
+                </h1>
                 
-                {/* NEW: Question Display */}
-                <div className="mb-6 bg-gray-800 rounded-lg p-4">
-                    <h2 className="text-xl font-semibold mb-2">Question</h2>
-                    <div className="whitespace-pre-line question-text text-lg text-white mb-2">
+                {/* NEW: Modern Question Display */}
+                <div className="mb-6 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-slate-600/50 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                            <span className="text-white font-bold text-sm">Q</span>
+                        </div>
+                        <h2 className="text-xl font-semibold text-slate-200">Question</h2>
+                    </div>
+                    <div className="whitespace-pre-line text-lg text-white mb-3 leading-relaxed">
                         {currentQuestion.question}
                     </div>
-                    <p className="text-sm text-gray-400 mt-1">
-                        Question {currentQuestionIndex + 1} of {allQuestions.length}
-                    </p>
+                    <div className="flex items-center justify-between">
+                        <p className="text-sm text-slate-400">
+                            Question {currentQuestionIndex + 1} of {allQuestions.length}
+                        </p>
+                        <div className="flex gap-1">
+                            {Array.from({ length: allQuestions.length }, (_, i) => (
+                                <div
+                                    key={i}
+                                    className={`w-2 h-2 rounded-full ${
+                                        i === currentQuestionIndex 
+                                            ? 'bg-blue-500' 
+                                            : i < currentQuestionIndex 
+                                                ? 'bg-green-500' 
+                                                : 'bg-slate-600'
+                                    }`}
+                                />
+                            ))}
+                        </div>
+                    </div>
                 </div>
 
                 <div className="mt-6">
                     <button 
                         onClick={handlePlayPause} 
                         disabled={buttonState.disabled}
-                        className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-2 px-4 rounded-lg mr-2 transition-all duration-200 shadow-lg hover:shadow-xl`}
+                        className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-3 px-6 rounded-xl mr-3 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105`}
                     >
                         {buttonState.text}
                     </button>
                     <button 
                         onClick={handleReset} 
-                        className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                        className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
                     >
                         Reset
                     </button>
@@ -555,8 +667,9 @@ function StreamingPage() {
                         </ReactMarkdown>
                     )}
 
+                    {/* ENHANCED: Modern Blank Input - This should show when BLANK is detected */}
                     {isWaitingForBlankFill && currentBlankAnswer && (
-                        <BlankInput
+                        <ModernBlankInput
                             userInput={userInput}
                             setUserInput={setUserInput}
                             onSubmit={handleUserInputSubmit}
@@ -565,7 +678,8 @@ function StreamingPage() {
                         />
                     )}
                     
-                    {isWaitingForFeedback && !activeAccordion && (
+                    {/* FIXED: Only show feedback if not waiting for blank and didn't just complete blank */}
+                    {isWaitingForFeedback && !activeAccordion && !isWaitingForBlankFill && !justCompletedBlank && (
                         <ParagraphFeedback
                             onFeedback={handleParagraphFeedback}
                             currentAccordionId={null} 
