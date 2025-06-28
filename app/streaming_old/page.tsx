@@ -108,6 +108,63 @@ function ModernBlankInput({
     );
 }
 
+// NEW: Modern AI Output Display Component
+function ModernAIOutputDisplay({ 
+    answer, 
+    onContinue,
+    buttonText = "Continue Learning",
+    loading = false
+}: {
+    answer: string;
+    onContinue: () => void;
+    buttonText?: string;
+    loading?: boolean;
+}) {
+    return (
+        <div className="my-8 p-8 bg-gradient-to-br from-emerald-900/30 to-teal-900/30 border border-emerald-500/40 rounded-2xl backdrop-blur-sm shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full flex items-center justify-center shadow-lg">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                </div>
+                <div>
+                    <h3 className="text-2xl font-bold text-emerald-300 mb-1">Now let's see the AI output!</h3>
+                    <p className="text-emerald-200/80">Here's the complete solution from our AI system</p>
+                </div>
+            </div>
+            
+            <div className="bg-slate-900/50 rounded-xl p-6 mb-6 border border-slate-700/50">
+                <div className="flex items-center gap-2 mb-4">
+                    <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span className="text-sm font-medium text-emerald-400">AI Generated Answer</span>
+                </div>
+                <div className="text-white text-lg leading-relaxed whitespace-pre-line min-h-[48px]">
+                    <ReactMarkdown components={markdownComponents}>
+                        {answer}
+                    </ReactMarkdown>
+                    {loading && (
+                        <span className="ml-2 animate-pulse text-emerald-400">|</span>
+                    )}
+                </div>
+            </div>
+            
+            <div className="flex justify-center">
+                <button
+                    onClick={onContinue}
+                    disabled={loading}
+                    className={`px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 flex items-center gap-3 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                    <span>{buttonText}</span>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    );
+}
+
 function StreamingPage() {
     // NEW: Question state
     const [allQuestions, setAllQuestions] = useState<Question[]>([]);
@@ -144,6 +201,14 @@ function StreamingPage() {
     
     // NEW: Track if we just completed a blank to skip feedback
     const [justCompletedBlank, setJustCompletedBlank] = useState(false);
+    
+    // NEW: AI Output display state
+    const [showAIOutput, setShowAIOutput] = useState(false);
+    // NEW: Show modern prompt before AI output
+    const [showAIPrompt, setShowAIPrompt] = useState(false);
+    // NEW: AI answer streaming state
+    const [streamedAIAnswer, setStreamedAIAnswer] = useState("");
+    const [isStreamingAIAnswer, setIsStreamingAIAnswer] = useState(false);
 
     // Chat accordion state
     const [activeAccordion, setActiveAccordion] = useState<ParagraphAccordion | null>(null);
@@ -177,6 +242,16 @@ function StreamingPage() {
 
         fetchQuestions();
     }, []);
+
+    // REMOVED: Show AI output prompt automatically on content complete
+    // We'll now trigger the prompt only after user response, not after streaming.
+    // useEffect(() => {
+    //     if (isContentComplete && !showAIOutput && !showAIPrompt) {
+    //         setTimeout(() => {
+    //             setShowAIPrompt(true);
+    //         }, 1000); // Show after 1 second delay
+    //     }
+    // }, [isContentComplete, showAIOutput, showAIPrompt]);
 
     // AI Agent Call - Fixed streaming function
     async function getChatResponseStream(
@@ -358,7 +433,8 @@ function StreamingPage() {
         setFeedbackMessage("");
         setBlankResponses([]);
         setActiveAccordion(null);
-        setJustCompletedBlank(false); // NEW: Reset blank completion flag
+        setJustCompletedBlank(false);
+        setShowAIOutput(false); // NEW: Reset AI output display
     };
 
     const handleParagraphFeedback = (understood: boolean) => {
@@ -399,6 +475,9 @@ function StreamingPage() {
             setDisplayedCurrentParagraph("");
             setDisplayPosition(0);
             setIsWaitingForFeedback(false);
+            if (isContentComplete && !showAIOutput && !showAIPrompt) {
+                setTimeout(() => setShowAIPrompt(true), 500);
+            }
             if (!isPaused) {
                 setIsTyping(true);
             }
@@ -440,8 +519,28 @@ function StreamingPage() {
         setDisplayPosition(0);
         setActiveAccordion(null);
         setIsWaitingForFeedback(false);
+        // Show the AI prompt after chat, if content is complete
+        if (isContentComplete && !showAIOutput && !showAIPrompt) {
+            setTimeout(() => setShowAIPrompt(true), 500);
+        }
         if (!isPaused) {
             setIsTyping(true);
+        }
+    };
+
+    // NEW: Handle continue from AI output
+    const handleContinueFromAIOutput = () => {
+        // Move to next question or show completion
+        if (currentQuestionIndex < allQuestions.length - 1) {
+            const nextQuestion = allQuestions[currentQuestionIndex + 1];
+            setCurrentQuestion(nextQuestion);
+            setCurrentQuestionIndex(prev => prev + 1);
+            
+            // Reset all states for new question
+            handleReset();
+        } else {
+            // All questions completed
+            alert("Congratulations! You've completed all questions!");
         }
     };
 
@@ -459,6 +558,7 @@ function StreamingPage() {
       isContentComplete,
       isWaitingForBlankFill,
       isWaitingForFeedback,
+      showAIOutput,
     ]);
 
     const handleChatSubmit = async (accordionId: string) => {
@@ -551,6 +651,10 @@ function StreamingPage() {
             setUserInput("");
             setCurrentBlankAnswer(null);
             setJustCompletedBlank(true); // NEW: Set flag to skip feedback
+            // Show the AI prompt after blank response, if content is complete
+            if (isContentComplete && !showAIOutput && !showAIPrompt) {
+                setTimeout(() => setShowAIPrompt(true), 500);
+            }
             if (!isPaused) {
                 setIsTyping(true);
             }
@@ -708,12 +812,52 @@ function StreamingPage() {
                             defaultClosed={false}
                         />
                     )}
+
+                    {/* MODERN PROMPT: Show after 'Am I making sense?' before AI answer */}
+                    {showAIPrompt && !showAIOutput && (
+                        <div className="flex flex-col items-center justify-center my-12">
+                            <div className="bg-gradient-to-r from-emerald-900/60 to-teal-900/60 p-8 rounded-2xl border border-emerald-500/20 shadow-xl max-w-lg w-full text-center">
+                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI thinks.</h3>
+                                <button
+                                    onClick={async () => {
+                                        setShowAIPrompt(false);
+                                        setShowAIOutput(true);
+                                        setStreamedAIAnswer("");
+                                        setIsStreamingAIAnswer(true);
+                                        // Simulate streaming the AI answer character by character
+                                        const answer = currentQuestion?.answer || "";
+                                        for (let i = 1; i <= answer.length; i++) {
+                                            setStreamedAIAnswer(answer.slice(0, i));
+                                            await new Promise(res => setTimeout(res, 15));
+                                        }
+                                        setIsStreamingAIAnswer(false);
+                                    }}
+                                    className="mt-4 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105"
+                                >
+                                    Ok
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NEW: Modern AI Output Display - Shows after Ok click */}
+                    {showAIOutput && currentQuestion?.answer && (
+                        <ModernAIOutputDisplay
+                            answer={streamedAIAnswer}
+                            onContinue={handleContinueFromAIOutput}
+                            buttonText={currentQuestionIndex < allQuestions.length - 1 ? "Next Question" : "Finish"}
+                            loading={isStreamingAIAnswer}
+                        />
+                    )}
+
+                    {/* Show PerformanceSummary only after last question's AI answer */}
+                    {showAIOutput && currentQuestionIndex === allQuestions.length - 1 && (
+                        <PerformanceSummary
+                            blankResponses={blankResponses}
+                            isContentComplete={isContentComplete}
+                        />
+                    )}
                 </div>
-                
-                <PerformanceSummary
-                    blankResponses={blankResponses}
-                    isContentComplete={isContentComplete}
-                />
 
                 <div ref={bottomRef} />
             </div>
