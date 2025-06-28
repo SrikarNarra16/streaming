@@ -1,32 +1,20 @@
-// add c4d30406576f64a43bcb865d3aeb458941d5aea8
-
+// app/streaming_old/page.tsx (PRODUCTION READY - AI INTEGRATED WITH DB FETCHING)
 "use client";
 
-// ---------------------------------------------------------------------------
-
-// TODO: Logging, Login, and DB
-// Add question on the top and to the chat
-// Add conversation history to the chat
-// After each paragraph answer of the user to the feedback readonly
-// Make more prominent: 3 ✗ (Correct Answer: 6)
-// After thinking show the actual AI response
-// Performace: Add how many times they said I did not understand
-// Readme add paragraphs details and code formatting
-
-// ---------------------------------------------------------------------------
-import React, { useEffect, useRef, useState } from "react";
-import { animate, useMotionValue } from "framer-motion";
+import React, { useEffect, useState, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 
 import { BlankInput } from "@/components/streaming/BlankInput";
 import { ParagraphFeedback } from "@/components/streaming/ParagraphFeedback";
 import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
-import { TextRenderer } from "@/components/streaming/TextRenderer";
+import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 
-interface ThinkingSegment {
-  text: string | null;
-  isBlank: boolean;
-  blankAnswer: string | null;
-  newPosition?: number;
+// NEW: Question interface
+interface Question {
+  id: number;
+  question: string;
+  content: string;
+  answer: string;
 }
 
 interface ParagraphAccordion {
@@ -38,558 +26,585 @@ interface ParagraphAccordion {
 }
 
 interface BlankResponse {
-  userAnswer: string;
-  correctAnswer: string;
-  isCorrect: boolean;
-  position: number;
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
+    position: number;
 }
+  
+const TYPING_INTERVAL_MS = 20;
+const CHARS_PER_TYPE_INTERVAL = 3;
+const FEEDBACK_DURATION_MS = 1000;
 
-const TYPING_INTERVAL_MS = 100;
-const CHARS_PER_TYPE_INTERVAL = 30;
-const ANIMATION_CHARS_PER_SECOND = 30;
-const FEEDBACK_DURATION_MS = 1500;
-
-function StreamingPage() {
-  const aiText = `Okay, I need to write a Python function called identical that takes two arguments: a dictionary P and an integer val. Both keys and values are integers, so that's good.
-
-The function should return BLANK(-1) if val is not found in P. If it is found, then we need to find all the keys with value equal to val, determine the maximum and minimum of those keys, subtract them, and return that difference. Otherwise, return -1 as per the instructions.
-
-First, check if val exists in P. If not, return -1 immediately.
-
-If it does exist, extract all the key-value pairs where value is equal to val. Then find the max and min of those keys.
-
-You can iterate through each item in P.items(), check if the value equals val, and collect the keys into a list.
-
-Once you have that list, compute max_key = max(keys) and min_key = min(keys). Then return max_key - min_key.
-
-If there are multiple keys with the same value, all of them will be included in the list, so both max and min would correctly find the correct values.
-
-Testing example: identical({1:3,4:2,5:3,7:3}, 3) should return 6. Keys with value 3 are 1,5,7. Max is 7, min is 1, so the difference is 6.
-
-Another test case: identical({2:4}, 3) should return -1.
-
-If P is empty, return -1.
-
-Function outline:
-
-def identical(P, val):
-    if val not in P:
-        return -1
-    keys = [k for k, v in P.items() if v == val]
-    max_k = max(keys)
-    min_k = min(keys)
-    return max_k - min_k
-
-Testing example: \`identical({1:3,4:2,5:3,7:3}, 3)\` `;
-
-  // Main state
-  const [currentPosition, setCurrentPosition] = useState(0);
-  const [revealedText, setRevealedText] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-
-  // Blank states
-  const [isWaitingForBlankFill, setIsWaitingForBlankFill] = useState(false);
-  const [userInput, setUserInput] = useState("");
-  const [currentBlankAnswer, setCurrentBlankAnswer] = useState<string | null>(
-    null
-  );
-  const [feedbackMessage, setFeedbackMessage] = useState("");
-  const [isPreparingForBlank, setIsPreparingForBlank] = useState(false);
-
-  // Paragraph feedback states
-  const [isWaitingForParagraphFeedback, setIsWaitingForParagraphFeedback] =
-    useState(false);
-  const [paragraphFeedbackMessage, setParagraphFeedbackMessage] = useState("");
-
-  // Accordion states
-  const [paragraphAccordions, setParagraphAccordions] = useState<
-    ParagraphAccordion[]
-  >([]);
-  const [currentAccordionId, setCurrentAccordionId] = useState<string | null>(
-    null
-  );
-  const [currentChatInput, setCurrentChatInput] = useState("");
-  const [isLoadingResponse, setIsLoadingResponse] = useState(false);
-
-  // Performance tracking
-  const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
-  const [isContentComplete, setIsContentComplete] = useState(false);
-
-  // Helper functions
-  const getCurrentParagraphContext = (): string => {
-    const fullContext = aiText.slice(0, currentPosition).trim();
-    console.log("Generated context:", fullContext);
-    return fullContext || "No context available";
-  };
-
-  const getChatResponse = async (
-    userMessage: string,
-    context: string
-  ): Promise<string> => {
-    console.log("Context for chat:", context);
-
-    if (!context || context.trim() === "") {
-      console.warn("Empty context provided, using fallback");
-      context = "General programming question";
-    }
-
-    try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: userMessage,
-          context: context,
-          type: "explanation_chat",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      return data.content;
-    } catch (error) {
-      console.error("Error getting chat response:", error);
-      return `Sorry, I encountered an error: ${error.message}. Please try asking your question again.`;
-    }
-  };
-
-  function getNextSegment(charsToFetch: number): ThinkingSegment {
-    if (currentPosition >= aiText.length) {
-      return {
-        text: null,
-        isBlank: false,
-        blankAnswer: null,
-        newPosition: currentPosition,
-      };
-    }
-
-    const remainingText = aiText.slice(currentPosition);
-    const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/);
-
-    if (blankMatch) {
-      const blankAnswer = blankMatch[1];
-      console.log("Found blank:", blankAnswer);
-      console.log(
-        "New position after blank: ",
-        currentPosition + blankMatch[0].length
-      );
-
-      return {
-        text: null,
-        isBlank: true,
-        blankAnswer,
-        newPosition: currentPosition + blankMatch[0].length,
-      };
-    }
-
-    let endIndex = remainingText.indexOf("BLANK(");
-    if (endIndex === -1) {
-      endIndex = remainingText.length;
-    }
-
-    const chunkSize = Math.min(charsToFetch, endIndex);
-    const textChunk = remainingText.slice(0, chunkSize);
-
-    return {
-      text: textChunk,
-      isBlank: false,
-      blankAnswer: null,
-      newPosition: currentPosition + chunkSize,
-    };
-  }
-
-  function useAnimatedTextDisplay(
-    fullTextToDisplay: string,
-    onAnimationComplete?: () => void
-  ) {
-    const animationProgress = useMotionValue(0);
-    const [visibleCharCount, setVisibleCharCount] = useState(0);
-    const prevTextRef = useRef(fullTextToDisplay);
-
-    useEffect(() => {
-      const newText = fullTextToDisplay;
-      const oldText = prevTextRef.current;
-      let charsToAnimateThisTime: number;
-
-      if (newText.startsWith(oldText)) {
-        charsToAnimateThisTime = newText.length - oldText.length;
-      } else {
-        animationProgress.jump(0);
-        setVisibleCharCount(0);
-        charsToAnimateThisTime = newText.length;
-      }
-
-      if (charsToAnimateThisTime <= 0 && newText.startsWith(oldText)) {
-        if (animationProgress.get() !== newText.length) {
-          setVisibleCharCount(newText.length);
-          animationProgress.jump(newText.length);
-        }
-        onAnimationComplete?.();
-        prevTextRef.current = newText;
-        return;
-      }
-
-      const duration = Math.max(
-        0.05,
-        charsToAnimateThisTime / ANIMATION_CHARS_PER_SECOND
-      );
-
-      const animationControls = animate(animationProgress, newText.length, {
-        duration,
-        ease: "linear",
-        onUpdate: (latest) => setVisibleCharCount(Math.floor(latest)),
-        onComplete: () => {
-          setVisibleCharCount(newText.length);
-          animationProgress.jump(newText.length);
-          onAnimationComplete?.();
-        },
-      });
-
-      prevTextRef.current = newText;
-      return () => animationControls.stop();
-    }, [fullTextToDisplay, animationProgress, onAnimationComplete]);
-
-    return fullTextToDisplay.slice(0, visibleCharCount);
-  }
-
-  // Event handlers
-  const handleReset = () => {
-    setIsTyping(false);
-    setRevealedText("");
-    setCurrentPosition(0);
-    setIsWaitingForBlankFill(false);
-    setUserInput("");
-    setCurrentBlankAnswer(null);
-    setFeedbackMessage("");
-    setIsPreparingForBlank(false);
-    setIsWaitingForParagraphFeedback(false);
-    setParagraphFeedbackMessage("");
-    setParagraphAccordions([]);
-    setCurrentAccordionId(null);
-    setCurrentChatInput("");
-    setIsLoadingResponse(false);
-    setBlankResponses([]);
-    setIsContentComplete(false);
-  };
-
-  const handlePlayPause = () => {
-    if (
-      !isTyping &&
-      currentPosition >= aiText.length &&
-      !getNextSegment(1).isBlank
-    ) {
-      return;
-    }
-    setIsTyping(!isTyping);
-  };
-
-  const handleParagraphFeedback = (understood: boolean) => {
-  const accordionId = `${currentPosition}`;
-  const fullContextUpToNow = aiText.slice(0, currentPosition).trim();
-
-  // Always persist feedback as a ParagraphAccordion
-  const newAccordion: ParagraphAccordion = {
-    id: accordionId,
-    position: currentPosition,
-    chatMessages: [],
-    paragraphContext: fullContextUpToNow || "No previous content available",
-    userFeedback: understood ? "understood" : "did_not_understand",
-  };
-  setParagraphAccordions((prev) => [...prev, newAccordion]);
-
-  if (understood) {
-    setParagraphFeedbackMessage("Great! Continuing...");
-    setTimeout(() => {
-      setParagraphFeedbackMessage("");
-      setIsWaitingForParagraphFeedback(false);
-      setCurrentAccordionId(null);
-      setIsTyping(true);
-    }, 300);
-  } else {
-    setCurrentAccordionId(accordionId);
-  }
+const markdownComponents = {
+    p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
+    code: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm" {...props}>{children}</code>,
+    pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600" {...props}><code className="text-green-300 font-mono text-sm">{children}</code></pre>,
+    strong: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+        const text = children?.toString() || "";
+        if (text.includes("✓")) return <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded" {...props}>{children}</span>;
+        if (text.includes("✗")) return <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded" {...props}>{children}</span>;
+        return <strong className="font-bold text-blue-300" {...props}>{children}</strong>;
+    },
 };
 
-  const handleChatSubmit = async (accordionId: string) => {
-    if (!currentChatInput.trim() || isLoadingResponse) return;
+function StreamingPage() {
+    // NEW: Question state
+    const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
+    const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
 
-    const userMessage = currentChatInput;
-    setCurrentChatInput("");
-    setIsLoadingResponse(true);
+    // MODIFIED: Get AI text from current question instead of hardcoded
+    const aiText = currentQuestion?.content || "";
 
-    const accordion = paragraphAccordions.find((acc) => acc.id === accordionId);
-    let context = accordion?.paragraphContext;
+    // Core streaming state
+    const [isTyping, setIsTyping] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [isStreamingSessionActive, setIsStreamingSessionActive] = useState(false);
+    const [isContentComplete, setIsContentComplete] = useState(false);
+    
+    // Content management
+    const [completedContent, setCompletedContent] = useState<React.ReactNode[]>([]);
+    const [completedParagraphs, setCompletedParagraphs] = useState<string[]>([]);
+    const [currentParagraph, setCurrentParagraph] = useState("");
+    const [displayedCurrentParagraph, setDisplayedCurrentParagraph] = useState("");
+    
+    // Position tracking
+    const [textPosition, setTextPosition] = useState(0);
+    const [displayPosition, setDisplayPosition] = useState(0);
+    
+    // Interactive states
+    const [isWaitingForFeedback, setIsWaitingForFeedback] = useState(false);
+    const [isWaitingForBlankFill, setIsWaitingForBlankFill] = useState(false);
+    const [currentBlankAnswer, setCurrentBlankAnswer] = useState<string | null>(null);
+    const [userInput, setUserInput] = useState("");
+    const [feedbackMessage, setFeedbackMessage] = useState("");
+    const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
 
-    if (
-      !context ||
-      context.trim() === "" ||
-      context === "Previous explanation content"
-    ) {
-      context = getCurrentParagraphContext();
-    }
+    // Chat accordion state
+    const [activeAccordion, setActiveAccordion] = useState<ParagraphAccordion | null>(null);
+    const [currentChatInput, setCurrentChatInput] = useState("");
+    const [isLoadingResponse, setIsLoadingResponse] = useState(false);
 
-    console.log("Using context for chat:", context.slice(0, 200) + "...");
+    // NEW: Fetch all questions on component mount
+    useEffect(() => {
+        const fetchQuestions = async () => {
+            setIsLoadingQuestions(true);
+            try {
+                const response = await fetch("/api/questions");
+                if (!response.ok) {
+                    throw new Error("Failed to fetch questions");
+                }
+                const data = await response.json();
 
-    // Add user message immediately
-    setParagraphAccordions((prev) =>
-      prev.map((accordion) =>
-        accordion.id === accordionId
-          ? {
-              ...accordion,
-              chatMessages: [
-                ...accordion.chatMessages,
-                { role: "user", message: userMessage },
-              ],
+                setAllQuestions(data.questions);
+
+                // Auto-load first question if available
+                if (data.questions.length > 0) {
+                    setCurrentQuestion(data.questions[0]);
+                    setCurrentQuestionIndex(0);
+                }
+            } catch (error) {
+                console.error("Error fetching questions:", error);
+            } finally {
+                setIsLoadingQuestions(false);
             }
-          : accordion
-      )
-    );
+        };
 
-    try {
-      const aiResponse = await getChatResponse(userMessage, context);
+        fetchQuestions();
+    }, []);
 
-      setParagraphAccordions((prev) =>
-        prev.map((accordion) =>
-          accordion.id === accordionId
-            ? {
-                ...accordion,
-                chatMessages: [
-                  ...accordion.chatMessages,
-                  { role: "ai", message: aiResponse },
-                ],
-              }
-            : accordion
-        )
-      );
-    } catch (error) {
-      setParagraphAccordions((prev) =>
-        prev.map((accordion) =>
-          accordion.id === accordionId
-            ? {
-                ...accordion,
-                chatMessages: [
-                  ...accordion.chatMessages,
-                  {
-                    role: "ai",
-                    message:
-                      "Sorry, I couldn't process your question right now. Please try again.",
-                  },
-                ],
-              }
-            : accordion
-        )
-      );
-    } finally {
-      setIsLoadingResponse(false);
+    // AI Agent Call - Fixed streaming function
+    async function getChatResponseStream(
+        userMessage: string, 
+        context: string, 
+        conversationHistory: Array<{ role: "user" | "ai"; message: string }>, 
+        onChunk: (chunk: string) => void
+    ) {
+        const response = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                prompt: userMessage, 
+                context, 
+                type: "explanation_chat", 
+                conversationHistory 
+            }),
+        });
+
+        if (!response.body) throw new Error("No response body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let aiText = "";
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            aiText += chunk;
+            onChunk(aiText); // Pass the accumulated text, not just the chunk
+        }
+        return aiText;
     }
-  };
 
-  const handleContinueAfterChat = () => {
-    setParagraphFeedbackMessage("Thanks for the questions! Continuing...");
-    setTimeout(() => {
-      setParagraphFeedbackMessage("");
-      setIsWaitingForParagraphFeedback(false);
-      setCurrentAccordionId(null);
-      setIsTyping(true);
-    }, 1000);
-  };
+    // Helper function to get current context
+    const getCurrentParagraphContext = () => {
+        const questionText = currentQuestion?.question || "";
+        const allCompletedText = completedParagraphs.join("\n\n");
+        const currentText = currentParagraph || displayedCurrentParagraph;
 
-  const handleUserInputSubmit = () => {
-    if (!userInput.trim() || !currentBlankAnswer) return;
-
-    const isCorrect =
-      userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
-
-    const blankResponse: BlankResponse = {
-      userAnswer: userInput.trim(),
-      correctAnswer: currentBlankAnswer,
-      isCorrect,
-      position: currentPosition - `BLANK(${currentBlankAnswer})`.length,
+        let context = "";
+        if (questionText) context += `Question: ${questionText}\n\n`;
+        if (allCompletedText && currentText) {
+            context += `${allCompletedText}\n\n${currentText}`;
+        } else if (allCompletedText) {
+            context += allCompletedText;
+        } else if (currentText) {
+            context += currentText;
+        }
+        if (!context) context = "No context available";
+        return context;
     };
 
-    setBlankResponses((prev) => [...prev, blankResponse]);
-    setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Incorrect!");
-
-    setTimeout(() => {
-      setRevealedText((prev) => {
-        const blankPlaceholder = `[${currentBlankAnswer}] `;
-        const lastBlankIndex = prev.lastIndexOf(blankPlaceholder);
-
-        if (lastBlankIndex !== -1) {
-          const beforeBlank = prev.slice(0, lastBlankIndex);
-          const afterBlank = prev.slice(
-            lastBlankIndex + blankPlaceholder.length
-          );
-
-          let replacement;
-          if (isCorrect) {
-            replacement = `**${userInput.trim()}** ✓`;
-          } else {
-            replacement = `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
-          }
-
-          return beforeBlank + replacement + afterBlank;
+    // --- STREAMING LOGIC ---
+    useEffect(() => {
+        if (!isTyping || isPaused || aiText.length === 0 || textPosition >= aiText.length) {
+            if (aiText.length > 0 && textPosition >= aiText.length) {
+                setIsContentComplete(true);
+                setIsStreamingSessionActive(false);
+                setIsTyping(false);
+            }
+            return;
         }
-        return prev;
-      });
 
-      setUserInput("");
-      setFeedbackMessage("");
-      setCurrentBlankAnswer(null);
-      setIsWaitingForBlankFill(false);
-      setIsPreparingForBlank(false);
+        const intervalId = setInterval(() => {
+            const remainingText = aiText.slice(textPosition);
+            
+            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/);
+            if (blankMatch) {
+                const answer = blankMatch[1];
+                const fullBlankTag = blankMatch[0];
+                setCurrentBlankAnswer(answer);
+                setIsTyping(false);
+                setIsWaitingForBlankFill(true);
+                setTextPosition(prev => prev + fullBlankTag.length);
+                return;
+            }
 
-      if (currentPosition < aiText.length) {
-        setIsTyping(true);
-      } else {
-        const nextSegment = getNextSegment(1);
-        if (nextSegment.isBlank) {
-          setIsTyping(true);
-        } else {
-          setIsContentComplete(true);
+            const paragraphBreakIndex = remainingText.indexOf("\n\n");
+            let chunk = "";
+            
+            if (paragraphBreakIndex !== -1) {
+                chunk = remainingText.slice(0, paragraphBreakIndex);
+                setCurrentParagraph(prev => prev + chunk);
+                setTextPosition(prev => prev + chunk.length + 2);
+                setIsTyping(false);
+                return;
+            } else {
+                chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
+                setCurrentParagraph(prev => prev + chunk);
+                setTextPosition(prev => prev + chunk.length);
+            }
+        }, TYPING_INTERVAL_MS);
+
+        return () => clearInterval(intervalId);
+    }, [isTyping, isPaused, textPosition, aiText]);
+
+    // --- DISPLAY ANIMATION ---
+    useEffect(() => {
+        if (isPaused || displayPosition >= currentParagraph.length) {
+            if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
+                setTimeout(() => {
+                    setIsWaitingForFeedback(true);
+                }, 200);
+            }
+            return;
         }
-      }
-    }, FEEDBACK_DURATION_MS);
-  };
 
-  const handleAnimationComplete = () => {
-    if (isPreparingForBlank) {
-      setIsWaitingForBlankFill(true);
-      setIsPreparingForBlank(false);
-    }
-  };
+        const intervalId = setInterval(() => {
+            setDisplayPosition(prev => {
+                const newPos = prev + CHARS_PER_TYPE_INTERVAL;
+                setDisplayedCurrentParagraph(currentParagraph.slice(0, newPos));
+                return newPos;
+            });
+        }, TYPING_INTERVAL_MS);
 
-  // Main typing effect
-  useEffect(() => {
-    if (!isTyping) return;
+        return () => clearInterval(intervalId);
+    }, [currentParagraph, displayPosition, isPaused, isTyping]);
 
-    if (currentPosition >= aiText.length && !getNextSegment(1).isBlank) {
-      setIsTyping(false);
-      setIsContentComplete(true);
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      const segment = getNextSegment(CHARS_PER_TYPE_INTERVAL);
-
-      if (segment.text) {
-        console.log(`Revealing text: ${segment.text}`);
-
-        const paragraphBreakIndex = segment.text.indexOf("\n\n");
-
-        if (paragraphBreakIndex !== -1) {
-          const textUpToParagraph = segment.text.slice(
-            0,
-            paragraphBreakIndex + 2
-          );
-          setRevealedText((prev) => prev + textUpToParagraph);
-          setCurrentPosition(currentPosition + textUpToParagraph.length);
-          setIsTyping(false);
-          setIsWaitingForParagraphFeedback(true);
-        } else {
-          setRevealedText((prev) => prev + segment.text);
-          setCurrentPosition(segment.newPosition || currentPosition);
+    useEffect(() => {
+        if (currentParagraph === "") {
+            setDisplayPosition(0);
+            setDisplayedCurrentParagraph("");
         }
-      } else if (segment.isBlank) {
-        setRevealedText((prev) => prev + `[${segment.blankAnswer}] `);
+    }, [currentParagraph]);
+
+    // --- EVENT HANDLERS ---
+    const handlePlayPause = () => {
+        if (!currentQuestion) return; // NEW: Don't allow if no question loaded
+
+        if (!isStreamingSessionActive && !isContentComplete) {
+            setIsStreamingSessionActive(true);
+            setIsTyping(true);
+            setIsPaused(false);
+        } else if (isStreamingSessionActive && !isContentComplete) {
+            setIsPaused(!isPaused);
+            if (isPaused) {
+                if (!isWaitingForFeedback && !isWaitingForBlankFill && !activeAccordion) {
+                    setIsTyping(true);
+                }
+            } else {
+                setIsTyping(false);
+            }
+        }
+    };
+    
+    const handleReset = () => {
         setIsTyping(false);
-        console.log(`Blank found: ${segment.blankAnswer}`);
-        setCurrentPosition(segment.newPosition || currentPosition);
-        setCurrentBlankAnswer(segment.blankAnswer);
-        setIsPreparingForBlank(true);
-      } else {
-        setIsTyping(false);
-        setIsContentComplete(true);
+        setIsPaused(false);
+        setIsStreamingSessionActive(false);
+        setIsContentComplete(false);
+        setCompletedContent([]);
+        setCompletedParagraphs([]);
+        setCurrentParagraph("");
+        setDisplayedCurrentParagraph("");
+        setTextPosition(0);
+        setDisplayPosition(0);
+        setIsWaitingForFeedback(false);
+        setIsWaitingForBlankFill(false);
+        setCurrentBlankAnswer(null);
+        setUserInput("");
+        setFeedbackMessage("");
+        setBlankResponses([]);
+        setActiveAccordion(null);
+    };
+
+    const handleParagraphFeedback = (understood: boolean) => {
+        const newCompletedParagraph = (
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
+            </ReactMarkdown>
+        );
+
+        const newAccordionData: ParagraphAccordion = {
+            id: `acc-${textPosition}`,
+            position: textPosition,
+            chatMessages: [],
+            paragraphContext: currentParagraph,
+            userFeedback: understood ? "understood" : "did_not_understand",
+        };
+
+        if (understood) {
+            const readOnlyFeedback = (
+                <div key={newAccordionData.id} className="my-4">
+                    <ChatAccordion 
+                        accordionId={newAccordionData.id}
+                        chatMessages={newAccordionData.chatMessages}
+                        currentChatInput=""
+                        setCurrentChatInput={() => {}}
+                        onSubmit={() => {}}
+                        isLoadingResponse={false}
+                        isReadOnly={true}
+                        userFeedback={newAccordionData.userFeedback}
+                        isDimmed={true}
+                        defaultClosed={true}
+                    />
+                </div>
+            );
+            setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
+            setCompletedParagraphs(prev => [...prev, currentParagraph]);
+            setCurrentParagraph("");
+            setDisplayedCurrentParagraph("");
+            setDisplayPosition(0);
+            setIsWaitingForFeedback(false);
+            if (!isPaused) {
+                setIsTyping(true);
+            }
+        } else {
+            setActiveAccordion(newAccordionData);
+        }
+    };
+    
+    const handleContinueAfterChat = () => {
+        if (!activeAccordion) return;
+
+        const newCompletedParagraph = (
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
+            </ReactMarkdown>
+        );
+        
+        const readOnlyFeedback = (
+            <div key={activeAccordion.id} className="my-4">
+                <ChatAccordion 
+                    accordionId={activeAccordion.id}
+                    chatMessages={activeAccordion.chatMessages}
+                    currentChatInput=""
+                    setCurrentChatInput={() => {}}
+                    onSubmit={() => {}}
+                    isLoadingResponse={false}
+                    isReadOnly={true}
+                    userFeedback={activeAccordion.userFeedback}
+                    isDimmed={true}
+                    defaultClosed={true}
+                />
+            </div>
+        );
+
+        setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
+        setCompletedParagraphs(prev => [...prev, currentParagraph]);
+        setCurrentParagraph("");
+        setDisplayedCurrentParagraph("");
+        setDisplayPosition(0);
+        setActiveAccordion(null);
+        setIsWaitingForFeedback(false);
+        if (!isPaused) {
+            setIsTyping(true);
+        }
+    };
+
+    const bottomRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({ behavior: "smooth" });
       }
-    }, TYPING_INTERVAL_MS);
+    }, [
+      // Add all dependencies that change when new content is added
+      activeAccordion?.chatMessages,
+      completedContent,
+      currentParagraph,
+      displayedCurrentParagraph,
+      isContentComplete,
+      isWaitingForBlankFill,
+      isWaitingForFeedback,
+    ]);
 
-    return () => clearInterval(intervalId);
-  }, [isTyping, currentPosition]);
+    // FIXED: Chat submit handler
+    const handleChatSubmit = async (accordionId: string) => {
+        if (!currentChatInput.trim() || isLoadingResponse || !activeAccordion) return;
 
-  const animatedRevealedText = useAnimatedTextDisplay(
-    revealedText,
-    handleAnimationComplete
-  );
+        const userMessage = currentChatInput;
+        setCurrentChatInput("");
+        setIsLoadingResponse(true);
 
-  // Get current chat messages for the active accordion
-  const currentChatMessages = currentAccordionId
-    ? paragraphAccordions.find((acc) => acc.id === currentAccordionId)
-        ?.chatMessages || []
-    : [];
+        // Get context - use the accordion's context or current context
+        let context = activeAccordion.paragraphContext;
+        if (!context || context.trim() === "" || context === "Context placeholder") {
+            context = getCurrentParagraphContext();
+        }
 
-  return (
-    <div className="min-h-screen bg-black text-white p-8">
-      <h1 className="text-3xl font-bold mb-6">AI Thinking</h1>
+        console.log("Using context for chat:", context.slice(0, 200) + "...");
 
-      <div className="mt-6">
-        <button
-          onClick={handlePlayPause}
-          className={`${
-            isTyping
-              ? "bg-red-500 hover:bg-red-700"
-              : "bg-blue-500 hover:bg-blue-700"
-          } text-white font-bold py-2 px-4 rounded mr-2`}
-        >
-          {isTyping ? "Pause" : "Start"}
-        </button>
-        <button
-          onClick={handleReset}
-          className="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
-        >
-          Reset
-        </button>
-      </div>
+        // Get conversation history
+        const conversationHistory = activeAccordion.chatMessages || [];
 
-      <div className="font-sans text-lg mt-6">
-        <div>
-          <TextRenderer
-            text={animatedRevealedText}
-            paragraphAccordions={paragraphAccordions}
-            currentAccordionId={currentAccordionId}
-          />
+        // Add user message immediately
+        setActiveAccordion(prev => prev ? {
+            ...prev,
+            chatMessages: [...prev.chatMessages, { role: "user", message: userMessage }]
+        } : null);
 
-          {/* Paragraph feedback */}
-          {isWaitingForParagraphFeedback && (
-            <ParagraphFeedback
-              currentAccordionId={currentAccordionId}
-              onFeedback={handleParagraphFeedback}
-              feedbackMessage={paragraphFeedbackMessage}
-              onChatSubmit={handleChatSubmit}
-              currentChatInput={currentChatInput}
-              setCurrentChatInput={setCurrentChatInput}
-              isLoadingResponse={isLoadingResponse}
-              onContinueAfterChat={handleContinueAfterChat}
-              chatMessages={currentChatMessages}
-            />
-          )}
+        try {
+            // Add placeholder AI message for streaming
+            setActiveAccordion(prev => prev ? {
+                ...prev,
+                chatMessages: [...prev.chatMessages, { role: "ai", message: "" }]
+            } : null);
 
-          {/* Blank input */}
-          {isWaitingForBlankFill && currentBlankAnswer && (
-            <BlankInput
-              userInput={userInput}
-              setUserInput={setUserInput}
-              onSubmit={handleUserInputSubmit}
-              currentBlankAnswer={currentBlankAnswer}
-              feedbackMessage={feedbackMessage}
-            />
-          )}
+            // Stream AI response
+            await getChatResponseStream(
+                userMessage,
+                context,
+                conversationHistory,
+                (streamedText: string) => {
+                    setActiveAccordion(prev => {
+                        if (!prev) return null;
+                        const updatedMessages = [...prev.chatMessages];
+                        const lastMessageIndex = updatedMessages.length - 1;
+                        if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "ai") {
+                            updatedMessages[lastMessageIndex] = {
+                                ...updatedMessages[lastMessageIndex],
+                                message: streamedText
+                            };
+                        }
+                        return { ...prev, chatMessages: updatedMessages };
+                    });
+                }
+            );
+        } catch (error) {
+            console.error("Chat error:", error);
+            setActiveAccordion(prev => {
+                if (!prev) return null;
+                const updatedMessages = [...prev.chatMessages];
+                const lastMessageIndex = updatedMessages.length - 1;
+                if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "ai") {
+                    updatedMessages[lastMessageIndex] = {
+                        ...updatedMessages[lastMessageIndex],
+                        message: "Sorry, I couldn't process your question right now. Please try again."
+                    };
+                }
+                return { ...prev, chatMessages: updatedMessages };
+            });
+        } finally {
+            setIsLoadingResponse(false);
+        }
+    };
+
+    const handleUserInputSubmit = () => {
+        if (!userInput.trim() || !currentBlankAnswer) return;
+        const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+        
+        setBlankResponses(prev => [...prev, { userAnswer: userInput.trim(), correctAnswer: currentBlankAnswer, isCorrect, position: textPosition }]);
+        
+        setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Incorrect!");
+        
+        const answerText = isCorrect
+            ? `**${userInput.trim()}** ✓`
+            : `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
+
+        setCurrentParagraph(prev => prev + answerText);
+        
+        setTimeout(() => {
+            setIsWaitingForBlankFill(false);
+            setFeedbackMessage("");
+            setUserInput("");
+            setCurrentBlankAnswer(null);
+            if (!isPaused) {
+                setIsTyping(true);
+            }
+        }, FEEDBACK_DURATION_MS);
+    };
+
+    const getButtonState = () => {
+        if (isContentComplete) {
+            return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
+        }
+        
+        if (!isStreamingSessionActive) {
+            return { text: "Start", color: "bg-blue-500 hover:bg-blue-600", disabled: false };
+        }
+        
+        if (isPaused) {
+            return { text: "Resume", color: "bg-emerald-500 hover:bg-emerald-600", disabled: false };
+        }
+        
+        return { text: "Pause", color: "bg-violet-500 hover:bg-violet-600", disabled: false };
+    };
+
+    const buttonState = getButtonState();
+
+    // NEW: Loading and error states
+    if (isLoadingQuestions) {
+        return (
+            <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <div>Loading questions...</div>
+            </div>
+        );
+    }
+
+    if (!currentQuestion) {
+        return (
+            <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <div>No questions available</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-black text-white p-8">
+            <div className="max-w-6xl mx-auto">
+                <h1 className="text-3xl font-bold mb-6">AI Thinking</h1>
+                
+                {/* NEW: Question Display */}
+                <div className="mb-6 bg-gray-800 rounded-lg p-4">
+                    <h2 className="text-xl font-semibold mb-2">Question</h2>
+                    <div className="whitespace-pre-line question-text text-lg text-white mb-2">
+                        {currentQuestion.question}
+                    </div>
+                    <p className="text-sm text-gray-400 mt-1">
+                        Question {currentQuestionIndex + 1} of {allQuestions.length}
+                    </p>
+                </div>
+
+                <div className="mt-6">
+                    <button 
+                        onClick={handlePlayPause} 
+                        disabled={buttonState.disabled}
+                        className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-2 px-4 rounded-lg mr-2 transition-all duration-200 shadow-lg hover:shadow-xl`}
+                    >
+                        {buttonState.text}
+                    </button>
+                    <button 
+                        onClick={handleReset} 
+                        className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                    >
+                        Reset
+                    </button>
+                </div>
+
+                <div className="font-sans text-lg mt-6">
+                    {completedContent}
+
+                    {displayedCurrentParagraph && (
+                         <ReactMarkdown components={markdownComponents}>
+                            {displayedCurrentParagraph}
+                        </ReactMarkdown>
+                    )}
+
+                    {isWaitingForBlankFill && currentBlankAnswer && (
+                        <BlankInput
+                            userInput={userInput}
+                            setUserInput={setUserInput}
+                            onSubmit={handleUserInputSubmit}
+                            currentBlankAnswer={currentBlankAnswer}
+                            feedbackMessage={feedbackMessage}
+                        />
+                    )}
+                    
+                    {isWaitingForFeedback && !activeAccordion && (
+                        <ParagraphFeedback
+                            onFeedback={handleParagraphFeedback}
+                            currentAccordionId={null} 
+                            feedbackMessage={""} 
+                            onChatSubmit={()=>{}} 
+                            currentChatInput="" 
+                            setCurrentChatInput={()=>{}} 
+                            isLoadingResponse={false} 
+                            onContinueAfterChat={()=>{}} 
+                            chatMessages={[]}
+                        />
+                    )}
+
+                    {activeAccordion && (
+                        <ChatAccordion
+                            accordionId={activeAccordion.id}
+                            chatMessages={activeAccordion.chatMessages}
+                            currentChatInput={currentChatInput}
+                            setCurrentChatInput={setCurrentChatInput}
+                            onSubmit={handleChatSubmit}
+                            isLoadingResponse={isLoadingResponse}
+                            isReadOnly={false}
+                            userFeedback={activeAccordion.userFeedback}
+                            onContinue={handleContinueAfterChat}
+                            isDimmed={false}
+                            defaultClosed={false}
+                        />
+                    )}
+                </div>
+                
+                <PerformanceSummary
+                    blankResponses={blankResponses}
+                    isContentComplete={isContentComplete}
+                />
+
+                <div ref={bottomRef} />
+            </div>
         </div>
-
-        {/* Performance summary */}
-        <PerformanceSummary
-          blankResponses={blankResponses}
-          isContentComplete={isContentComplete}
-        />
-      </div>
-    </div>
-  );
+    );
 }
 
 export default StreamingPage;
