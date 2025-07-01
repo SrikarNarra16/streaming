@@ -1,15 +1,14 @@
-// app/streaming_old/page.tsx (FIXED - PROPER BLANK DETECTION THAT ACTUALLY WORKS)
+// app/streaming/page.tsx
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 
-import { BlankInput } from "@/components/streaming/BlankInput";
-import { ParagraphFeedback } from "@/components/streaming/ParagraphFeedback";
 import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { ChatAccordion } from "@/components/streaming/ChatAccordion";
+import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
+import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
 
-// Question interface
 interface Question {
   id: number;
   question: string;
@@ -31,14 +30,6 @@ interface BlankResponse {
     isCorrect: boolean;
     position: number;
 }
-
-// Helper interface for streaming segments
-interface ThinkingSegment {
-  text: string | null;
-  isBlank: boolean;
-  blankAnswer: string | null;
-  newPosition?: number;
-}
   
 const TYPING_INTERVAL_MS = 20;
 const CHARS_PER_TYPE_INTERVAL = 3;
@@ -56,66 +47,6 @@ const markdownComponents = {
     },
 };
 
-// Modern BlankInput Component
-function ModernBlankInput({ 
-    userInput, 
-    setUserInput, 
-    onSubmit, 
-    currentBlankAnswer, 
-    feedbackMessage 
-}: {
-    userInput: string;
-    setUserInput: (value: string) => void;
-    onSubmit: () => void;
-    currentBlankAnswer: string;
-    feedbackMessage: string;
-}) {
-    return (
-        <div className="my-6 p-6 bg-gradient-to-r from-blue-900/20 to-purple-900/20 border border-blue-500/30 rounded-xl backdrop-blur-sm">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">?</span>
-                </div>
-                <h3 className="text-lg font-semibold text-blue-300">Fill in the blank</h3>
-            </div>
-            
-            <div className="space-y-4">
-                <div className="flex gap-3">
-                    <input
-                        type="text"
-                        value={userInput}
-                        onChange={(e) => setUserInput(e.target.value)}
-                        onKeyPress={(e) => e.key === "Enter" && onSubmit()}
-                        placeholder="Type your answer here..."
-                        className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                        autoFocus
-                    />
-                    <button
-                        onClick={onSubmit}
-                        disabled={!userInput.trim()}
-                        className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:opacity-50 text-white font-medium rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
-                    >
-                        Submit
-                    </button>
-                </div>
-                
-                {feedbackMessage && (
-                    <div className={`p-3 rounded-lg text-center font-medium ${
-                        feedbackMessage.includes("✓") 
-                            ? "bg-green-900/30 text-green-300 border border-green-500/30" 
-                            : "bg-red-900/30 text-red-300 border border-red-500/30"
-                    }`}>
-                        {feedbackMessage}
-                    </div>
-                )}
-                
-                <div className="text-sm text-slate-400 text-center">
-                    💡 Hint: Expected answer length is approximately {currentBlankAnswer?.length || 0} characters
-                </div>
-            </div>
-        </div>
-    );
-}
 
 function StreamingPage() {
     // Question state
@@ -124,7 +55,6 @@ function StreamingPage() {
     const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
 
-    // Get AI text from current question
     const aiText = currentQuestion?.content || "";
 
     // Core streaming state
@@ -133,11 +63,15 @@ function StreamingPage() {
     const [isStreamingSessionActive, setIsStreamingSessionActive] = useState(false);
     const [isContentComplete, setIsContentComplete] = useState(false);
     
-    // Content management - USING REFERENCE APPROACH
+    // Content management
     const [completedContent, setCompletedContent] = useState<React.ReactNode[]>([]);
     const [completedParagraphs, setCompletedParagraphs] = useState<string[]>([]);
-    const [revealedText, setRevealedText] = useState(""); // Like reference code
-    const [currentPosition, setCurrentPosition] = useState(0); // Like reference code
+    const [currentParagraph, setCurrentParagraph] = useState("");
+    const [displayedCurrentParagraph, setDisplayedCurrentParagraph] = useState("");
+    
+    // Position tracking
+    const [textPosition, setTextPosition] = useState(0);
+    const [displayPosition, setDisplayPosition] = useState(0);
     
     // Interactive states
     const [isWaitingForFeedback, setIsWaitingForFeedback] = useState(false);
@@ -146,23 +80,30 @@ function StreamingPage() {
     const [userInput, setUserInput] = useState("");
     const [feedbackMessage, setFeedbackMessage] = useState("");
     const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
+    const [justCompletedBlank, setJustCompletedBlank] = useState(false);
+    
+    // AI Output display state
+    const [showAIOutput, setShowAIOutput] = useState(false);
+    const [showAIPrompt, setShowAIPrompt] = useState(false);
+    const [streamedAIAnswer, setStreamedAIAnswer] = useState("");
+    const [isStreamingAIAnswer, setIsStreamingAIAnswer] = useState(false);
 
     // Chat accordion state
     const [activeAccordion, setActiveAccordion] = useState<ParagraphAccordion | null>(null);
     const [currentChatInput, setCurrentChatInput] = useState("");
     const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+    
+    const bottomRef = useRef<HTMLDivElement>(null);
 
-    // Fetch questions on mount
+    // Fetch all questions on component mount
     useEffect(() => {
         const fetchQuestions = async () => {
             setIsLoadingQuestions(true);
             try {
                 const response = await fetch("/api/questions");
-                if (!response.ok) {
-                    throw new Error("Failed to fetch questions");
-                }
+                if (!response.ok) throw new Error("Failed to fetch questions");
+                
                 const data = await response.json();
-
                 setAllQuestions(data.questions);
 
                 if (data.questions.length > 0) {
@@ -179,160 +120,99 @@ function StreamingPage() {
         fetchQuestions();
     }, []);
 
-    // FIXED: Use the exact same logic as reference code
-    function getNextSegment(charsToFetch: number): ThinkingSegment {
-        if (currentPosition >= aiText.length) {
-            return {
-                text: null,
-                isBlank: false,
-                blankAnswer: null,
-                newPosition: currentPosition,
-            };
-        }
-
-        const remainingText = aiText.slice(currentPosition);
-        const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/);
-
-        if (blankMatch) {
-            const blankAnswer = blankMatch[1];
-            console.log("Found blank:", blankAnswer);
-            console.log("New position after blank:", currentPosition + blankMatch[0].length);
-
-            return {
-                text: null,
-                isBlank: true,
-                blankAnswer,
-                newPosition: currentPosition + blankMatch[0].length,
-            };
-        }
-
-        let endIndex = remainingText.indexOf("BLANK(");
-        if (endIndex === -1) {
-            endIndex = remainingText.length;
-        }
-
-        const chunkSize = Math.min(charsToFetch, endIndex);
-        const textChunk = remainingText.slice(0, chunkSize);
-
-        return {
-            text: textChunk,
-            isBlank: false,
-            blankAnswer: null,
-            newPosition: currentPosition + chunkSize,
-        };
-    }
-
-    // AI streaming function
-    async function getChatResponseStream(
-        userMessage: string, 
-        context: string, 
-        conversationHistory: Array<{ role: "user" | "ai"; message: string }>, 
-        onChunk: (chunk: string) => void
-    ) {
-        const response = await fetch("/api/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                prompt: userMessage, 
-                context, 
-                type: "explanation_chat", 
-                conversationHistory 
-            }),
-        });
-
-        if (!response.body) throw new Error("No response body");
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let aiText = "";
-
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            aiText += chunk;
-            onChunk(aiText);
-        }
-        return aiText;
-    }
-
-    // Helper function to get current context
-    const getCurrentParagraphContext = () => {
-        const allCompletedText = completedParagraphs.join("\n\n");
-        const currentText = revealedText;
-        
-        if (allCompletedText && currentText) {
-            return `${allCompletedText}\n\n${currentText}`;
-        } else if (allCompletedText) {
-            return allCompletedText;
-        } else if (currentText) {
-            return currentText;
-        }
-        return "No context available";
-    };
-
-    // FIXED: Main typing effect using reference approach
+    // --- STREAMING LOGIC ---
     useEffect(() => {
-        if (!isTyping || !currentQuestion) return;
-
-        if (currentPosition >= aiText.length && !getNextSegment(1).isBlank) {
-            setIsTyping(false);
-            setIsContentComplete(true);
+        if (!isTyping || isPaused || textPosition >= aiText.length) {
+            if (textPosition >= aiText.length && aiText.length > 0) {
+                setIsContentComplete(true);
+                setIsStreamingSessionActive(false);
+                setIsTyping(false);
+            }
             return;
         }
 
         const intervalId = setInterval(() => {
-            const segment = getNextSegment(CHARS_PER_TYPE_INTERVAL);
+            const remainingText = aiText.slice(textPosition);
+            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
 
-            if (segment.text) {
-                console.log(`Revealing text: ${segment.text}`);
-
-                const paragraphBreakIndex = segment.text.indexOf("\n\n");
-
-                if (paragraphBreakIndex !== -1) {
-                    const textUpToParagraph = segment.text.slice(0, paragraphBreakIndex + 2);
-                    setRevealedText((prev) => prev + textUpToParagraph);
-                    setCurrentPosition(currentPosition + textUpToParagraph.length);
-                    setIsTyping(false);
-                    setIsWaitingForFeedback(true);
-                } else {
-                    setRevealedText((prev) => prev + segment.text);
-                    setCurrentPosition(segment.newPosition || currentPosition);
-                }
-            } else if (segment.isBlank) {
-                setRevealedText((prev) => prev + `[${segment.blankAnswer}] `);
+            if (blankMatch) {
+                const answer = blankMatch[1];
+                const fullBlankTag = blankMatch[0];
+                setCurrentBlankAnswer(answer);
                 setIsTyping(false);
-                console.log(`Blank found: ${segment.blankAnswer}`);
-                setCurrentPosition(segment.newPosition || currentPosition);
-                setCurrentBlankAnswer(segment.blankAnswer);
                 setIsWaitingForBlankFill(true);
-            } else {
+                setTextPosition(prev => prev + fullBlankTag.length);
+                return;
+            }
+
+            const paragraphBreakIndex = remainingText.indexOf("\n\n");
+            let chunk = "";
+            
+            if (paragraphBreakIndex !== -1 && paragraphBreakIndex < CHARS_PER_TYPE_INTERVAL) {
+                chunk = remainingText.slice(0, paragraphBreakIndex);
+                setCurrentParagraph(prev => prev + chunk);
+                setTextPosition(prev => prev + chunk.length + 2); // +2 for \n\n
                 setIsTyping(false);
-                setIsContentComplete(true);
+            } else {
+                chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
+                setCurrentParagraph(prev => prev + chunk);
+                setTextPosition(prev => prev + chunk.length);
             }
         }, TYPING_INTERVAL_MS);
 
         return () => clearInterval(intervalId);
-    }, [isTyping, currentPosition, currentQuestion]);
+    }, [isTyping, isPaused, textPosition, aiText]);
 
-    // Event handlers
+    // --- DISPLAY ANIMATION ---
+    useEffect(() => {
+        if (isPaused || displayPosition >= currentParagraph.length) {
+            if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
+                setTimeout(() => {
+                    if (justCompletedBlank) {
+                        setJustCompletedBlank(false);
+                        if (!isPaused) setIsTyping(true);
+                    } else {
+                        setIsWaitingForFeedback(true);
+                    }
+                }, 200);
+            }
+            return;
+        }
+
+        const intervalId = setInterval(() => {
+            setDisplayPosition(prev => {
+                const newPos = prev + CHARS_PER_TYPE_INTERVAL;
+                setDisplayedCurrentParagraph(currentParagraph.slice(0, newPos));
+                return newPos;
+            });
+        }, TYPING_INTERVAL_MS);
+
+        return () => clearInterval(intervalId);
+    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank]);
+
+    useEffect(() => {
+        if (currentParagraph === "") {
+            setDisplayPosition(0);
+            setDisplayedCurrentParagraph("");
+        }
+    }, [currentParagraph]);
+    
+    useEffect(() => {
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }, [completedContent, displayedCurrentParagraph, isWaitingForBlankFill, isWaitingForFeedback, showAIOutput, activeAccordion]);
+
+    // --- EVENT HANDLERS ---
     const handlePlayPause = () => {
         if (!currentQuestion) return;
-
         if (!isStreamingSessionActive && !isContentComplete) {
             setIsStreamingSessionActive(true);
             setIsTyping(true);
             setIsPaused(false);
-        } else if (isStreamingSessionActive && !isContentComplete) {
+        } else if (isStreamingSessionActive) {
             setIsPaused(!isPaused);
-            if (isPaused) {
-                if (!isWaitingForFeedback && !isWaitingForBlankFill && !activeAccordion) {
-                    setIsTyping(true);
-                }
-            } else {
-                setIsTyping(false);
-            }
+            setIsTyping(isPaused);
         }
     };
     
@@ -343,8 +223,10 @@ function StreamingPage() {
         setIsContentComplete(false);
         setCompletedContent([]);
         setCompletedParagraphs([]);
-        setRevealedText("");
-        setCurrentPosition(0);
+        setCurrentParagraph("");
+        setDisplayedCurrentParagraph("");
+        setTextPosition(0);
+        setDisplayPosition(0);
         setIsWaitingForFeedback(false);
         setIsWaitingForBlankFill(false);
         setCurrentBlankAnswer(null);
@@ -352,20 +234,24 @@ function StreamingPage() {
         setFeedbackMessage("");
         setBlankResponses([]);
         setActiveAccordion(null);
+        setJustCompletedBlank(false);
+        setShowAIOutput(false);
+        setShowAIPrompt(false);
+        setStreamedAIAnswer("");
     };
 
     const handleParagraphFeedback = (understood: boolean) => {
         const newCompletedParagraph = (
-            <ReactMarkdown key={`p-${currentPosition}`} components={markdownComponents}>
-                {revealedText}
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
             </ReactMarkdown>
         );
 
         const newAccordionData: ParagraphAccordion = {
-            id: `acc-${currentPosition}`,
-            position: currentPosition,
+            id: `acc-${textPosition}`,
+            position: textPosition,
             chatMessages: [],
-            paragraphContext: revealedText,
+            paragraphContext: currentParagraph,
             userFeedback: understood ? "understood" : "did_not_understand",
         };
 
@@ -374,25 +260,25 @@ function StreamingPage() {
                 <div key={newAccordionData.id} className="my-4">
                     <ChatAccordion 
                         accordionId={newAccordionData.id}
-                        chatMessages={newAccordionData.chatMessages}
+                        chatMessages={[]}
                         currentChatInput=""
                         setCurrentChatInput={() => {}}
                         onSubmit={() => {}}
                         isLoadingResponse={false}
                         isReadOnly={true}
-                        userFeedback={newAccordionData.userFeedback}
+                        userFeedback="understood"
                         isDimmed={true}
                         defaultClosed={true}
                     />
                 </div>
             );
             setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
-            setCompletedParagraphs(prev => [...prev, revealedText]);
-            setRevealedText("");
+            setCompletedParagraphs(prev => [...prev, currentParagraph]);
+            setCurrentParagraph("");
+            setDisplayPosition(0);
             setIsWaitingForFeedback(false);
-            if (!isPaused) {
-                setIsTyping(true);
-            }
+            if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
+            if (!isPaused) setIsTyping(true);
         } else {
             setActiveAccordion(newAccordionData);
         }
@@ -402,8 +288,8 @@ function StreamingPage() {
         if (!activeAccordion) return;
 
         const newCompletedParagraph = (
-            <ReactMarkdown key={`p-${currentPosition}`} components={markdownComponents}>
-                {revealedText}
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
             </ReactMarkdown>
         );
         
@@ -425,13 +311,58 @@ function StreamingPage() {
         );
 
         setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
-        setCompletedParagraphs(prev => [...prev, revealedText]);
-        setRevealedText("");
+        setCompletedParagraphs(prev => [...prev, currentParagraph]);
+        setCurrentParagraph("");
+        setDisplayPosition(0);
         setActiveAccordion(null);
         setIsWaitingForFeedback(false);
-        if (!isPaused) {
-            setIsTyping(true);
+        if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
+        if (!isPaused) setIsTyping(true);
+    };
+
+    const handleUserInputSubmit = () => {
+        if (!userInput.trim() || !currentBlankAnswer) return;
+        const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+        
+        setBlankResponses(prev => [...prev, { userAnswer: userInput.trim(), correctAnswer: currentBlankAnswer, isCorrect, position: textPosition }]);
+        setFeedbackMessage(isCorrect ? "✓ Correct! Well done!" : "✗ Incorrect. Try again next time!");
+        
+        const answerText = isCorrect
+            ? `**${userInput.trim()}** ✓`
+            : `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
+
+        setCurrentParagraph(prev => prev + answerText);
+        
+        setTimeout(() => {
+            setIsWaitingForBlankFill(false);
+            setFeedbackMessage("");
+            setUserInput("");
+            setCurrentBlankAnswer(null);
+            setJustCompletedBlank(true);
+            if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
+            if (!isPaused) setIsTyping(true);
+        }, FEEDBACK_DURATION_MS);
+    };
+    
+    // --- API & Helper Functions ---
+    const getChatResponseStream = async (userMessage: string, context: string, conversationHistory: any[], onChunk: (chunk: string) => void) => {
+        const response = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: userMessage, context, type: "explanation_chat", conversationHistory }),
+        });
+        if (!response.body) throw new Error("No response body");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let aiText = "";
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            aiText += chunk;
+            onChunk(aiText);
         }
+        return aiText;
     };
 
     const handleChatSubmit = async (accordionId: string) => {
@@ -441,154 +372,66 @@ function StreamingPage() {
         setCurrentChatInput("");
         setIsLoadingResponse(true);
 
-        let context = activeAccordion.paragraphContext;
-        if (!context || context.trim() === "" || context === "Context placeholder") {
-            context = getCurrentParagraphContext();
-        }
-
-        const conversationHistory = activeAccordion.chatMessages || [];
-
-        setActiveAccordion(prev => prev ? {
-            ...prev,
-            chatMessages: [...prev.chatMessages, { role: "user", message: userMessage }]
-        } : null);
+        const updatedAccordion = {
+            ...activeAccordion,
+            chatMessages: [...activeAccordion.chatMessages, { role: "user", message: userMessage }, { role: "ai", message: "" }]
+        };
+        setActiveAccordion(updatedAccordion);
 
         try {
-            setActiveAccordion(prev => prev ? {
-                ...prev,
-                chatMessages: [...prev.chatMessages, { role: "ai", message: "" }]
-            } : null);
-
-            await getChatResponseStream(
-                userMessage,
-                context,
-                conversationHistory,
-                (streamedText: string) => {
-                    setActiveAccordion(prev => {
-                        if (!prev) return null;
-                        const updatedMessages = [...prev.chatMessages];
-                        const lastMessageIndex = updatedMessages.length - 1;
-                        if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "ai") {
-                            updatedMessages[lastMessageIndex] = {
-                                ...updatedMessages[lastMessageIndex],
-                                message: streamedText
-                            };
-                        }
-                        return { ...prev, chatMessages: updatedMessages };
-                    });
-                }
-            );
+            await getChatResponseStream(userMessage, activeAccordion.paragraphContext, activeAccordion.chatMessages, (streamedText) => {
+                setActiveAccordion(prev => {
+                    if (!prev) return null;
+                    const updatedMessages = [...prev.chatMessages];
+                    updatedMessages[updatedMessages.length - 1] = { role: "ai", message: streamedText };
+                    return { ...prev, chatMessages: updatedMessages };
+                });
+            });
         } catch (error) {
             console.error("Chat error:", error);
             setActiveAccordion(prev => {
                 if (!prev) return null;
                 const updatedMessages = [...prev.chatMessages];
-                const lastMessageIndex = updatedMessages.length - 1;
-                if (lastMessageIndex >= 0 && updatedMessages[lastMessageIndex].role === "ai") {
-                    updatedMessages[lastMessageIndex] = {
-                        ...updatedMessages[lastMessageIndex],
-                        message: "Sorry, I couldn't process your question right now. Please try again."
-                    };
-                }
+                updatedMessages[updatedMessages.length - 1] = { role: "ai", message: "Sorry, I couldn't process that. Please try again." };
                 return { ...prev, chatMessages: updatedMessages };
             });
         } finally {
             setIsLoadingResponse(false);
         }
     };
-
-    const handleUserInputSubmit = () => {
-        if (!userInput.trim() || !currentBlankAnswer) return;
-
-        const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
-
-        const blankResponse: BlankResponse = {
-            userAnswer: userInput.trim(),
-            correctAnswer: currentBlankAnswer,
-            isCorrect,
-            position: currentPosition - `BLANK(${currentBlankAnswer})`.length,
-        };
-
-        setBlankResponses((prev) => [...prev, blankResponse]);
-        setFeedbackMessage(isCorrect ? "✓ Correct!" : "✗ Incorrect!");
-
-        setTimeout(() => {
-            setRevealedText((prev) => {
-                const blankPlaceholder = `[${currentBlankAnswer}] `;
-                const lastBlankIndex = prev.lastIndexOf(blankPlaceholder);
-
-                if (lastBlankIndex !== -1) {
-                    const beforeBlank = prev.slice(0, lastBlankIndex);
-                    const afterBlank = prev.slice(lastBlankIndex + blankPlaceholder.length);
-
-                    let replacement;
-                    if (isCorrect) {
-                        replacement = `**${userInput.trim()}** ✓`;
-                    } else {
-                        replacement = `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
-                    }
-
-                    return beforeBlank + replacement + afterBlank;
-                }
-                return prev;
-            });
-
-            setUserInput("");
-            setFeedbackMessage("");
-            setCurrentBlankAnswer(null);
-            setIsWaitingForBlankFill(false);
-
-            if (currentPosition < aiText.length) {
-                setIsTyping(true);
-            } else {
-                const nextSegment = getNextSegment(1);
-                if (nextSegment.isBlank) {
-                    setIsTyping(true);
-                } else {
-                    setIsContentComplete(true);
-                }
-            }
-        }, FEEDBACK_DURATION_MS);
+    
+    const handleContinueFromAIOutput = () => {
+        if (currentQuestionIndex < allQuestions.length - 1) {
+            const nextIndex = currentQuestionIndex + 1;
+            setCurrentQuestion(allQuestions[nextIndex]);
+            setCurrentQuestionIndex(nextIndex);
+            handleReset();
+        } else {
+             alert("Congratulations! You've completed all questions!");
+        }
+    };
+    
+    const showAIAnswer = async () => {
+        setShowAIPrompt(false);
+        setShowAIOutput(true);
+        setIsStreamingAIAnswer(true);
+        const answer = currentQuestion?.answer || "";
+        for (let i = 0; i <= answer.length; i++) {
+            setStreamedAIAnswer(answer.slice(0, i));
+            await new Promise(res => setTimeout(res, 15));
+        }
+        setIsStreamingAIAnswer(false);
     };
 
     const getButtonState = () => {
-        if (isContentComplete && aiText.length > 0) {
-            return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
-        }
-        
-        if (!currentQuestion || aiText.length === 0) {
-            return { text: "Loading...", color: "bg-gray-500", disabled: true };
-        }
-        
-        if (!isStreamingSessionActive) {
-            return { text: "Start", color: "bg-blue-500 hover:bg-blue-600", disabled: false };
-        }
-        
-        if (isPaused) {
-            return { text: "Resume", color: "bg-emerald-500 hover:bg-emerald-600", disabled: false };
-        }
-        
+        if (isContentComplete) return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
+        if (!currentQuestion) return { text: "Loading...", color: "bg-gray-500", disabled: true };
+        if (!isStreamingSessionActive) return { text: "Start", color: "bg-blue-500 hover:bg-blue-600", disabled: false };
+        if (isPaused) return { text: "Resume", color: "bg-emerald-500 hover:bg-emerald-600", disabled: false };
         return { text: "Pause", color: "bg-violet-500 hover:bg-violet-600", disabled: false };
     };
-
     const buttonState = getButtonState();
 
-    const bottomRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (bottomRef.current) {
-            bottomRef.current.scrollIntoView({ behavior: "smooth" });
-        }
-    }, [
-        activeAccordion?.chatMessages,
-        completedContent,
-        revealedText,
-        isContentComplete,
-        isWaitingForBlankFill,
-        isWaitingForFeedback,
-    ]);
-
-    // Loading states
     if (isLoadingQuestions) {
         return (
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -605,7 +448,7 @@ function StreamingPage() {
             <div className="min-h-screen bg-black text-white flex items-center justify-center">
                 <div className="text-center">
                     <div className="text-red-400 text-xl mb-2">⚠️</div>
-                    <div>No questions available</div>
+                    <div>No questions available.</div>
                 </div>
             </div>
         );
@@ -618,7 +461,6 @@ function StreamingPage() {
                     AI Thinking
                 </h1>
                 
-                {/* Question Display */}
                 <div className="mb-6 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-slate-600/50 backdrop-blur-sm">
                     <div className="flex items-center gap-3 mb-3">
                         <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
@@ -634,34 +476,18 @@ function StreamingPage() {
                             Question {currentQuestionIndex + 1} of {allQuestions.length}
                         </p>
                         <div className="flex gap-1">
-                            {Array.from({ length: allQuestions.length }, (_, i) => (
-                                <div
-                                    key={i}
-                                    className={`w-2 h-2 rounded-full ${
-                                        i === currentQuestionIndex 
-                                            ? 'bg-blue-500' 
-                                            : i < currentQuestionIndex 
-                                                ? 'bg-green-500' 
-                                                : 'bg-slate-600'
-                                    }`}
-                                />
+                            {allQuestions.map((_, i) => (
+                                <div key={i} className={`w-2 h-2 rounded-full ${i === currentQuestionIndex ? 'bg-blue-500' : i < currentQuestionIndex ? 'bg-green-500' : 'bg-slate-600'}`} />
                             ))}
                         </div>
                     </div>
                 </div>
 
                 <div className="mt-6">
-                    <button 
-                        onClick={handlePlayPause} 
-                        disabled={buttonState.disabled}
-                        className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-3 px-6 rounded-xl mr-3 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105`}
-                    >
+                    <button onClick={handlePlayPause} disabled={buttonState.disabled} className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-3 px-6 rounded-xl mr-3 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105`}>
                         {buttonState.text}
                     </button>
-                    <button 
-                        onClick={handleReset} 
-                        className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
-                    >
+                    <button onClick={handleReset} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
                         Reset
                     </button>
                 </div>
@@ -669,35 +495,31 @@ function StreamingPage() {
                 <div className="font-sans text-lg mt-6">
                     {completedContent}
 
-                    {revealedText && (
-                         <ReactMarkdown components={markdownComponents}>
-                            {revealedText}
-                        </ReactMarkdown>
-                    )}
+                    {displayedCurrentParagraph && ( <ReactMarkdown components={markdownComponents}>{displayedCurrentParagraph}</ReactMarkdown> )}
 
-                    {/* Modern Blank Input */}
-                    {isWaitingForBlankFill && currentBlankAnswer && (
+                    {isWaitingForBlankFill && (
                         <ModernBlankInput
                             userInput={userInput}
                             setUserInput={setUserInput}
                             onSubmit={handleUserInputSubmit}
-                            currentBlankAnswer={currentBlankAnswer}
                             feedbackMessage={feedbackMessage}
                         />
                     )}
                     
-                    {isWaitingForFeedback && !activeAccordion && (
-                        <ParagraphFeedback
-                            onFeedback={handleParagraphFeedback}
-                            currentAccordionId={null} 
-                            feedbackMessage={""} 
-                            onChatSubmit={()=>{}} 
-                            currentChatInput="" 
-                            setCurrentChatInput={()=>{}} 
-                            isLoadingResponse={false} 
-                            onContinueAfterChat={()=>{}} 
-                            chatMessages={[]}
-                        />
+                    {isWaitingForFeedback && !activeAccordion && !isWaitingForBlankFill && !justCompletedBlank && (
+                        <div className="block mt-4 p-4 bg-slate-800/80 rounded-lg border border-slate-600/50 backdrop-blur-sm">
+                            <div className="text-blue-300 mb-3 font-medium">Am I making sense?</div>
+                            <div className="flex items-center space-x-4">
+                                <button onClick={() => handleParagraphFeedback(true)} className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors text-white">
+                                    <span className="text-xl mr-2">👍</span>
+                                    <span>Yes, continue</span>
+                                </button>
+                                <button onClick={() => handleParagraphFeedback(false)} className="flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-white">
+                                    <span className="text-xl mr-2">❓</span>
+                                    <span>I don't understand</span>
+                                </button>
+                            </div>
+                        </div>
                     )}
 
                     {activeAccordion && (
@@ -715,12 +537,35 @@ function StreamingPage() {
                             defaultClosed={false}
                         />
                     )}
+
+                    {showAIPrompt && !showAIOutput && (
+                        <div className="flex flex-col items-center justify-center my-12">
+                            <div className="bg-gradient-to-r from-emerald-900/60 to-teal-900/60 p-8 rounded-2xl border border-emerald-500/20 shadow-xl max-w-lg w-full text-center">
+                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI thinks.</h3>
+                                <button onClick={showAIAnswer} className="mt-4 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105">
+                                    Ok
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {showAIOutput && currentQuestion?.answer && (
+                        <ModernAIOutputDisplay
+                            answer={streamedAIAnswer}
+                            onContinue={handleContinueFromAIOutput}
+                            buttonText={currentQuestionIndex < allQuestions.length - 1 ? "Next Question" : "Finish"}
+                            loading={isStreamingAIAnswer}
+                            markdownComponents={markdownComponents}
+                        />
+                    )}
+
+                    {showAIOutput && currentQuestionIndex === allQuestions.length - 1 && (
+                        <PerformanceSummary
+                            blankResponses={blankResponses}
+                            isContentComplete={isContentComplete}
+                        />
+                    )}
                 </div>
-                
-                <PerformanceSummary
-                    blankResponses={blankResponses}
-                    isContentComplete={isContentComplete}
-                />
 
                 <div ref={bottomRef} />
             </div>
