@@ -54,6 +54,16 @@ const markdownComponents = {
 
 
 function StreamingPage() {
+  // Logout handler using provided logic
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.href = "/auth/login";
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
     // Question state
     const [allQuestions, setAllQuestions] = useState<Question[]>([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -460,8 +470,17 @@ function StreamingPage() {
     }
 
     return (
-        <div className="min-h-screen bg-black text-white p-8">
-            <div className="max-w-6xl mx-auto">
+        <div className="min-h-screen bg-black text-white flex flex-col">
+            {/* Logout button at top right */}
+            <div className="w-full flex justify-end p-4">
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white font-semibold shadow transition-all"
+              >
+                Logout
+              </button>
+            </div>
+            <div className="flex-1 max-w-6xl mx-auto w-full">
                 <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                     AI Thinking
                 </h1>
