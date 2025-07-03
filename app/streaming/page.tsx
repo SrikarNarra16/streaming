@@ -8,7 +8,6 @@ import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
-// Add Logout
 // Check AI output chat
 // Change AI Thinks
 // Fix output code markdown
@@ -381,39 +380,45 @@ function StreamingPage() {
     };
 
     const handleChatSubmit = async (accordionId: string) => {
-        if (!currentChatInput.trim() || isLoadingResponse || !activeAccordion) return;
+    if (!currentChatInput.trim() || isLoadingResponse || !activeAccordion) return;
 
-        const userMessage = currentChatInput;
-        setCurrentChatInput("");
-        setIsLoadingResponse(true);
+    const userMessage = currentChatInput;
+    setCurrentChatInput("");
+    setIsLoadingResponse(true);
 
-        const updatedAccordion = {
-            ...activeAccordion,
-            chatMessages: [...activeAccordion.chatMessages, { role: "user", message: userMessage }, { role: "ai", message: "" }]
-        };
-        setActiveAccordion(updatedAccordion);
+    // Compose context: question + completed paragraphs + current paragraph
+    const completedParagraphsText = completedParagraphs.join("\n\n");
+    const currentParagraphText = activeAccordion.paragraphContext;
+    const questionText = currentQuestion?.question || "";
+    const context = `Question: ${questionText}\n\nPrevious: ${completedParagraphsText}\n\nCurrent: ${currentParagraphText}`;
 
-        try {
-            await getChatResponseStream(userMessage, activeAccordion.paragraphContext, activeAccordion.chatMessages, (streamedText) => {
-                setActiveAccordion(prev => {
-                    if (!prev) return null;
-                    const updatedMessages = [...prev.chatMessages];
-                    updatedMessages[updatedMessages.length - 1] = { role: "ai", message: streamedText };
-                    return { ...prev, chatMessages: updatedMessages };
-                });
-            });
-        } catch (error) {
-            console.error("Chat error:", error);
+    const updatedAccordion = {
+        ...activeAccordion,
+        chatMessages: [...activeAccordion.chatMessages, { role: "user", message: userMessage }, { role: "ai", message: "" }]
+    };
+    setActiveAccordion(updatedAccordion);
+
+    try {
+        await getChatResponseStream(userMessage, context, activeAccordion.chatMessages, (streamedText) => {
             setActiveAccordion(prev => {
                 if (!prev) return null;
                 const updatedMessages = [...prev.chatMessages];
-                updatedMessages[updatedMessages.length - 1] = { role: "ai", message: "Sorry, I couldn't process that. Please try again." };
+                updatedMessages[updatedMessages.length - 1] = { role: "ai", message: streamedText };
                 return { ...prev, chatMessages: updatedMessages };
             });
-        } finally {
-            setIsLoadingResponse(false);
-        }
-    };
+        });
+    } catch (error) {
+        console.error("Chat error:", error);
+        setActiveAccordion(prev => {
+            if (!prev) return null;
+            const updatedMessages = [...prev.chatMessages];
+            updatedMessages[updatedMessages.length - 1] = { role: "ai", message: "Sorry, I couldn't process that. Please try again." };
+            return { ...prev, chatMessages: updatedMessages };
+        });
+    } finally {
+        setIsLoadingResponse(false);
+    }
+};
     
     const handleContinueFromAIOutput = () => {
         if (currentQuestionIndex < allQuestions.length - 1) {
