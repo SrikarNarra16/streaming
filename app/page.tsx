@@ -6,7 +6,6 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check if user is authenticated
     fetch("/api/auth/me")
       .then((res) => {
         if (res.ok) {

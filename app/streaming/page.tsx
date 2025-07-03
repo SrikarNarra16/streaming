@@ -8,6 +8,11 @@ import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
+// Add Logout
+// Check AI output chat
+// Change AI Thinks
+// Fix output code markdown
+
 
 interface Question {
   id: number;
