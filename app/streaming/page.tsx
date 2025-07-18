@@ -8,7 +8,6 @@ import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
-// Check AI output chat
 // Change AI Thinks
 // Fix output code markdown
 
@@ -41,7 +40,18 @@ const FEEDBACK_DURATION_MS = 1000;
 
 const markdownComponents = {
     p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
-    code: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm" {...props}>{children}</code>,
+    code: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+    // If code contains line breaks, render as code block
+    const codeText = children?.toString() || "";
+    if (codeText.includes("\n")) {
+        return (
+            <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                <code className="text-green-300 font-mono text-sm" {...props}>{codeText}</code>
+            </pre>
+        );
+    }
+    return <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm" {...props}>{children}</code>;
+},
     pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600" {...props}><code className="text-green-300 font-mono text-sm">{children}</code></pre>,
     strong: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
         const text = children?.toString() || "";
@@ -53,8 +63,22 @@ const markdownComponents = {
 
 
 function StreamingPage() {
+  // --- LOGGING FUNCTION ---
+  const logButtonClick = async (action: string, details: any = {}, level: string = "info") => {
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, details, level }),
+      });
+    } catch (error) {
+      console.error("Log error:", error);
+    }
+  };
+
   // Logout handler using provided logic
   const handleLogout = async () => {
+    await logButtonClick("logout_button_click", {}, "info");
     try {
       await fetch("/api/auth/logout", { method: "POST" });
       window.location.href = "/auth/login";
@@ -134,58 +158,66 @@ function StreamingPage() {
         fetchQuestions();
     }, []);
 
-    // --- STREAMING LOGIC ---
+    // --- NEW ROBUST STREAMING LOGIC ---
     useEffect(() => {
-        if (!isTyping || isPaused || textPosition >= aiText.length) {
-            if (textPosition >= aiText.length && aiText.length > 0) {
-                setIsContentComplete(true);
-                setIsStreamingSessionActive(false);
-                setIsTyping(false);
-            }
+        // Condition to run the effect: must be typing and not paused.
+        if (!isTyping || isPaused) {
             return;
         }
 
-        const intervalId = setInterval(() => {
-            const remainingText = aiText.slice(textPosition);
-            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
-
-            if (blankMatch) {
-                const answer = blankMatch[1];
-                const fullBlankTag = blankMatch[0];
-                setCurrentBlankAnswer(answer);
+        const handleTick = () => {
+            // Check for end of content
+            if (textPosition >= aiText.length) {
                 setIsTyping(false);
-                setIsWaitingForBlankFill(true);
-                setTextPosition(prev => prev + fullBlankTag.length);
+                setIsContentComplete(true);
+                setIsStreamingSessionActive(false);
                 return;
             }
 
-            const paragraphBreakIndex = remainingText.indexOf("\n\n");
-            let chunk = "";
+            const remainingText = aiText.slice(textPosition);
             
-            if (paragraphBreakIndex !== -1 && paragraphBreakIndex < CHARS_PER_TYPE_INTERVAL) {
-                chunk = remainingText.slice(0, paragraphBreakIndex);
-                setCurrentParagraph(prev => prev + chunk);
-                setTextPosition(prev => prev + chunk.length + 2); // +2 for \n\n
-                setIsTyping(false);
-            } else {
-                chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
-                setCurrentParagraph(prev => prev + chunk);
-                setTextPosition(prev => prev + chunk.length);
+            // Check for BLANK
+            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
+            if (blankMatch) {
+                setIsTyping(false); // Stop typing
+                setIsWaitingForBlankFill(true);
+                setCurrentBlankAnswer(blankMatch[1]);
+                setTextPosition(textPosition + blankMatch[0].length);
+                return; // End this tick
             }
-        }, TYPING_INTERVAL_MS);
 
-        return () => clearInterval(intervalId);
+            // Check for paragraph break
+            if (remainingText.startsWith('\n\n')) {
+                setIsTyping(false); // Stop typing
+                setTextPosition(textPosition + 2);
+                return; // End this tick
+            }
+
+            // Otherwise, type the next chunk
+            const chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
+            setCurrentParagraph(prev => prev + chunk);
+            setTextPosition(textPosition + chunk.length);
+        };
+
+        // Use a timeout to schedule the next tick. This creates a state-driven loop.
+        const timeoutId = setTimeout(handleTick, TYPING_INTERVAL_MS);
+
+        // Cleanup function to cancel the timeout if the component re-renders or unmounts
+        return () => clearTimeout(timeoutId);
+
     }, [isTyping, isPaused, textPosition, aiText]);
+
 
     // --- DISPLAY ANIMATION ---
     useEffect(() => {
         if (isPaused || displayPosition >= currentParagraph.length) {
+            // This logic runs when the paragraph has finished displaying
             if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
                 setTimeout(() => {
                     if (justCompletedBlank) {
                         setJustCompletedBlank(false);
-                        if (!isPaused) setIsTyping(true);
-                    } else {
+                        if (!isPaused) setIsTyping(true); // Resume typing
+                    } else if (!isWaitingForBlankFill) {
                         setIsWaitingForFeedback(true);
                     }
                 }, 200);
@@ -193,6 +225,7 @@ function StreamingPage() {
             return;
         }
 
+        // Animation loop for displaying the current paragraph
         const intervalId = setInterval(() => {
             setDisplayPosition(prev => {
                 const newPos = prev + CHARS_PER_TYPE_INTERVAL;
@@ -202,7 +235,7 @@ function StreamingPage() {
         }, TYPING_INTERVAL_MS);
 
         return () => clearInterval(intervalId);
-    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank]);
+    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank, isWaitingForBlankFill]);
 
     useEffect(() => {
         if (currentParagraph === "") {
@@ -221,16 +254,19 @@ function StreamingPage() {
     const handlePlayPause = () => {
         if (!currentQuestion) return;
         if (!isStreamingSessionActive && !isContentComplete) {
+            logButtonClick("start_button_click", { questionId: currentQuestion.id });
             setIsStreamingSessionActive(true);
             setIsTyping(true);
             setIsPaused(false);
         } else if (isStreamingSessionActive) {
+            logButtonClick(isPaused ? "resume_button_click" : "pause_button_click", { questionId: currentQuestion.id });
             setIsPaused(!isPaused);
-            setIsTyping(isPaused);
+            setIsTyping(isPaused); // This will resume the main useEffect loop
         }
     };
     
     const handleReset = () => {
+    logButtonClick("reset_button_click", { questionId: currentQuestion?.id });
         setIsTyping(false);
         setIsPaused(false);
         setIsStreamingSessionActive(false);
@@ -255,6 +291,7 @@ function StreamingPage() {
     };
 
     const handleParagraphFeedback = (understood: boolean) => {
+    logButtonClick(understood ? "understand_button_click" : "dont_understand_button_click", { questionId: currentQuestion?.id, paragraph: currentParagraph });
         const newCompletedParagraph = (
             <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
                 {currentParagraph}
@@ -291,8 +328,12 @@ function StreamingPage() {
             setCurrentParagraph("");
             setDisplayPosition(0);
             setIsWaitingForFeedback(false);
-            if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
-            if (!isPaused) setIsTyping(true);
+            if (textPosition >= aiText.length) {
+                setIsContentComplete(true);
+                setTimeout(() => setShowAIPrompt(true), 500);
+            } else if (!isPaused) {
+                setIsTyping(true);
+            }
         } else {
             setActiveAccordion(newAccordionData);
         }
@@ -330,13 +371,25 @@ function StreamingPage() {
         setDisplayPosition(0);
         setActiveAccordion(null);
         setIsWaitingForFeedback(false);
-        if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
-        if (!isPaused) setIsTyping(true);
+        if (textPosition >= aiText.length) {
+                setIsContentComplete(true);
+                setTimeout(() => setShowAIPrompt(true), 500);
+            } else if (!isPaused) {
+                setIsTyping(true);
+            }
     };
 
     const handleUserInputSubmit = () => {
         if (!userInput.trim() || !currentBlankAnswer) return;
         const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+        
+        logButtonClick("blank_answer_submit", {
+            userAnswer: userInput.trim(),
+            correctAnswer: currentBlankAnswer,
+            isCorrect,
+            position: textPosition,
+            questionId: currentQuestion?.id
+        });
         
         setBlankResponses(prev => [...prev, { userAnswer: userInput.trim(), correctAnswer: currentBlankAnswer, isCorrect, position: textPosition }]);
         setFeedbackMessage(isCorrect ? "✓ Correct! Well done!" : "✗ Incorrect. Try again next time!");
@@ -352,9 +405,7 @@ function StreamingPage() {
             setFeedbackMessage("");
             setUserInput("");
             setCurrentBlankAnswer(null);
-            setJustCompletedBlank(true);
-            if (isContentComplete) setTimeout(() => setShowAIPrompt(true), 500);
-            if (!isPaused) setIsTyping(true);
+            setJustCompletedBlank(true); // This will trigger the display animation useEffect to resume typing
         }, FEEDBACK_DURATION_MS);
     };
     
@@ -432,6 +483,7 @@ function StreamingPage() {
     };
     
     const showAIAnswer = async () => {
+    await logButtonClick("ok_ai_output_button_click", { questionId: currentQuestion?.id });
         setShowAIPrompt(false);
         setShowAIOutput(true);
         setIsStreamingAIAnswer(true);
@@ -485,7 +537,7 @@ function StreamingPage() {
                 Logout
               </button>
             </div>
-            <div className="flex-1 max-w-6xl mx-auto w-full">
+            <div className="flex-1 max-w-6xl mx-auto w-full p-4">
                 <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
                     AI Thinking
                 </h1>
@@ -570,7 +622,7 @@ function StreamingPage() {
                     {showAIPrompt && !showAIOutput && (
                         <div className="flex flex-col items-center justify-center my-12">
                             <div className="bg-gradient-to-r from-emerald-900/60 to-teal-900/60 p-8 rounded-2xl border border-emerald-500/20 shadow-xl max-w-lg w-full text-center">
-                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI thinks.</h3>
+                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI responded with.</h3>
                                 <button onClick={showAIAnswer} className="mt-4 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105">
                                     Ok
                                 </button>
