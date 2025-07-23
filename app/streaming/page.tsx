@@ -34,9 +34,9 @@ interface BlankResponse {
     position: number;
 }
   
-const TYPING_INTERVAL_MS = 20;
-const CHARS_PER_TYPE_INTERVAL = 3;
-const FEEDBACK_DURATION_MS = 1000;
+const TYPING_INTERVAL_MS = 10;
+const CHARS_PER_TYPE_INTERVAL = 1;
+const FEEDBACK_DURATION_MS = 3000;
 
 const markdownComponents = {
     p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
@@ -186,8 +186,8 @@ function StreamingPage() {
                 return; // End this tick
             }
 
-            // Check for paragraph break
-            if (remainingText.startsWith('\n\n')) {
+            // Check for paragraph break - Custom paragraph break - $$
+            if (remainingText.startsWith('$') && remainingText.charAt(1)=='$') {
                 setIsTyping(false); // Stop typing
                 setTextPosition(textPosition + 2);
                 return; // End this tick
