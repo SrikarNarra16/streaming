@@ -640,12 +640,12 @@ function StreamingPage() {
                         />
                     )}
 
-                    {showAIOutput && currentQuestionIndex === allQuestions.length - 1 && (
+                    {/*{showAIOutput && currentQuestion?.answer && (
                         <PerformanceSummary
                             blankResponses={blankResponses}
                             isContentComplete={isContentComplete}
                         />
-                    )}
+                    )}*/}
                 </div>
 
                 <div ref={bottomRef} />
