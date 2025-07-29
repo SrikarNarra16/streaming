@@ -36,7 +36,7 @@ interface BlankResponse {
   
 const TYPING_INTERVAL_MS = 10;
 const CHARS_PER_TYPE_INTERVAL = 1;
-const FEEDBACK_DURATION_MS = 3000;
+const FEEDBACK_DURATION_MS = 1500;
 
 const markdownComponents = {
     p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
