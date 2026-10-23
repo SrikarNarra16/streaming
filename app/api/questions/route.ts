@@ -30,7 +30,7 @@ export async function GET() {
 
     return NextResponse.json({ questions: allQuestions });
   } catch (error) {
-    await logger.error("questions_fetch_error", { error: error.message });
+    await logger.error("questions_fetch_error", { error: error instanceof Error ? error.message : String(error) });
     console.error("Error fetching questions:", error);
     return NextResponse.json(
       { error: "Internal server error" },

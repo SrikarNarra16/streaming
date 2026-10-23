@@ -416,6 +416,7 @@ function StreamingPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt: userMessage, context, type: "explanation_chat", conversationHistory }),
         });
+        if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
         if (!response.body) throw new Error("No response body");
         const reader = response.body.getReader();
         const decoder = new TextDecoder();

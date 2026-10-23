@@ -3,10 +3,22 @@ import { cookies } from "next/headers";
 import OpenAI from "openai";
 import { logger } from "@/lib/logger";
 
+// Only non-sensitive fields: error messages can contain fragments of the API key.
+function describeError(error: unknown) {
+  const e = error as { name?: string; status?: number; requestID?: string | null };
+  return {
+    errorName: error instanceof Error ? error.name : typeof error,
+    upstreamStatus: e?.status,
+    requestId: e?.requestID ?? undefined,
+  };
+}
+
 export async function POST(request: NextRequest) {
+  let userId: string | undefined;
+  let prompt = "";
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get("userId")?.value;
+    userId = cookieStore.get("userId")?.value;
 
     if (!userId) {
       await logger.warn("ai_generate_access_denied", {
@@ -15,7 +27,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { prompt, context, type, conversationHistory } = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    const { context, type, conversationHistory } = body;
+    prompt = body.prompt;
 
     await logger.info(
       "ai_generate_request",
@@ -95,14 +117,28 @@ ${context}`;
     const stream = new ReadableStream({
       async start(controller) {
         let fullContent = "";
-        for await (const chunk of completion) {
-          const delta = chunk.choices?.[0]?.delta?.content || "";
-          if (delta) {
-            controller.enqueue(delta);
-            fullContent += delta;
+        try {
+          for await (const chunk of completion) {
+            const delta = chunk.choices?.[0]?.delta?.content || "";
+            if (delta) {
+              controller.enqueue(delta);
+              fullContent += delta;
+            }
           }
+          controller.close();
+        } catch (streamError) {
+          await logger.error(
+            "ai_generate_stream_error",
+            {
+              ...describeError(streamError),
+              userQuestion: prompt,
+              partialResponseLength: fullContent.length,
+            },
+            userId
+          );
+          controller.error(streamError);
+          return;
         }
-        controller.close();
         // Optionally log the full response after streaming
         await logger.info(
           "ai_generate_success",
@@ -125,21 +161,18 @@ ${context}`;
         "Cache-Control": "no-cache"
       }
     });
-  } catch (error: any) {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get("userId")?.value;
-
+  } catch (error) {
     await logger.error(
       "ai_generate_error",
       {
-        error: error.message,
+        ...describeError(error),
         userQuestion: prompt,
       },
       userId
     );
     console.error("Error:", error);
     return NextResponse.json(
-      { error: `Error occurred: ${error.message}` },
+      { error: "The AI service could not process this request." },
       { status: 500 }
     );
   }
