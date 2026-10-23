@@ -446,7 +446,7 @@ function StreamingPage() {
 
     const updatedAccordion = {
         ...activeAccordion,
-        chatMessages: [...activeAccordion.chatMessages, { role: "user", message: userMessage }, { role: "ai", message: "" }]
+        chatMessages: [...activeAccordion.chatMessages, { role: "user" as const, message: userMessage }, { role: "ai" as const, message: "" }]
     };
     setActiveAccordion(updatedAccordion);
 

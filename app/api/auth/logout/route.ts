@@ -15,7 +15,7 @@ export async function POST() {
 
     return NextResponse.json({ message: "Logged out successfully" });
   } catch (error) {
-    await logger.error("logout_error", { error: error.message });
+    await logger.error("logout_error", { error: error instanceof Error ? error.message : String(error) });
     console.error("Logout error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
