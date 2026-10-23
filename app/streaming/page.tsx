@@ -1,0 +1,657 @@
+// app/streaming/page.tsx
+"use client";
+
+import React, { useEffect, useState, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+
+import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
+import { ChatAccordion } from "@/components/streaming/ChatAccordion";
+import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
+import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
+// Change AI Thinks
+// Fix output code markdown
+
+
+interface Question {
+  id: number;
+  question: string;
+  content: string;
+  answer: string;
+}
+
+interface ParagraphAccordion {
+  id: string;
+  position: number;
+  chatMessages: Array<{ role: "user" | "ai"; message: string }>;
+  paragraphContext: string;
+  userFeedback?: "understood" | "did_not_understand";
+}
+
+interface BlankResponse {
+    userAnswer: string;
+    correctAnswer: string;
+    isCorrect: boolean;
+    position: number;
+}
+  
+const TYPING_INTERVAL_MS = 10;
+const CHARS_PER_TYPE_INTERVAL = 1;
+const FEEDBACK_DURATION_MS = 1500;
+
+const markdownComponents = {
+    p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
+    code: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+    // If code contains line breaks, render as code block
+    const codeText = children?.toString() || "";
+    if (codeText.includes("\n")) {
+        return (
+            <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600">
+                <code className="text-green-300 font-mono text-sm" {...props}>{codeText}</code>
+            </pre>
+        );
+    }
+    return <code className="bg-gray-700 px-2 py-1 rounded text-yellow-300 font-mono text-sm" {...props}>{children}</code>;
+},
+    pre: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => <pre className="bg-gray-800 p-4 rounded mt-2 mb-4 overflow-x-auto border border-gray-600" {...props}><code className="text-green-300 font-mono text-sm">{children}</code></pre>,
+    strong: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+        const text = children?.toString() || "";
+        if (text.includes("✓")) return <span className="font-bold text-green-400 bg-green-900/30 px-2 py-1 rounded" {...props}>{children}</span>;
+        if (text.includes("✗")) return <span className="font-bold text-red-400 bg-red-900/30 px-2 py-1 rounded" {...props}>{children}</span>;
+        return <strong className="font-bold text-blue-300" {...props}>{children}</strong>;
+    },
+};
+
+
+function StreamingPage() {
+  // --- LOGGING FUNCTION ---
+  const logButtonClick = async (action: string, details: any = {}, level: string = "info") => {
+    try {
+      await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, details, level }),
+      });
+    } catch (error) {
+      console.error("Log error:", error);
+    }
+  };
+
+  // Logout handler using provided logic
+  const handleLogout = async () => {
+    await logButtonClick("logout_button_click", {}, "info");
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.href = "/auth/login";
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+    // Question state
+    const [allQuestions, setAllQuestions] = useState<Question[]>([]);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
+    const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+
+    const aiText = currentQuestion?.content || "";
+
+    // Core streaming state
+    const [isTyping, setIsTyping] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [isStreamingSessionActive, setIsStreamingSessionActive] = useState(false);
+    const [isContentComplete, setIsContentComplete] = useState(false);
+    
+    // Content management
+    const [completedContent, setCompletedContent] = useState<React.ReactNode[]>([]);
+    const [completedParagraphs, setCompletedParagraphs] = useState<string[]>([]);
+    const [currentParagraph, setCurrentParagraph] = useState("");
+    const [displayedCurrentParagraph, setDisplayedCurrentParagraph] = useState("");
+    
+    // Position tracking
+    const [textPosition, setTextPosition] = useState(0);
+    const [displayPosition, setDisplayPosition] = useState(0);
+    
+    // Interactive states
+    const [isWaitingForFeedback, setIsWaitingForFeedback] = useState(false);
+    const [isWaitingForBlankFill, setIsWaitingForBlankFill] = useState(false);
+    const [currentBlankAnswer, setCurrentBlankAnswer] = useState<string | null>(null);
+    const [userInput, setUserInput] = useState("");
+    const [feedbackMessage, setFeedbackMessage] = useState("");
+    const [blankResponses, setBlankResponses] = useState<BlankResponse[]>([]);
+    const [justCompletedBlank, setJustCompletedBlank] = useState(false);
+    
+    // AI Output display state
+    const [showAIOutput, setShowAIOutput] = useState(false);
+    const [showAIPrompt, setShowAIPrompt] = useState(false);
+    const [streamedAIAnswer, setStreamedAIAnswer] = useState("");
+    const [isStreamingAIAnswer, setIsStreamingAIAnswer] = useState(false);
+
+    // Chat accordion state
+    const [activeAccordion, setActiveAccordion] = useState<ParagraphAccordion | null>(null);
+    const [currentChatInput, setCurrentChatInput] = useState("");
+    const [isLoadingResponse, setIsLoadingResponse] = useState(false);
+    
+    const bottomRef = useRef<HTMLDivElement>(null);
+
+    // Fetch all questions on component mount
+    useEffect(() => {
+        const fetchQuestions = async () => {
+            setIsLoadingQuestions(true);
+            try {
+                const response = await fetch("/api/questions");
+                if (!response.ok) throw new Error("Failed to fetch questions");
+                
+                const data = await response.json();
+                setAllQuestions(data.questions);
+
+                if (data.questions.length > 0) {
+                    setCurrentQuestion(data.questions[0]);
+                    setCurrentQuestionIndex(0);
+                }
+            } catch (error) {
+                console.error("Error fetching questions:", error);
+            } finally {
+                setIsLoadingQuestions(false);
+            }
+        };
+
+        fetchQuestions();
+    }, []);
+
+    // --- NEW ROBUST STREAMING LOGIC ---
+    useEffect(() => {
+        // Condition to run the effect: must be typing and not paused.
+        if (!isTyping || isPaused) {
+            return;
+        }
+
+        const handleTick = () => {
+            // Check for end of content
+            if (textPosition >= aiText.length) {
+                setIsTyping(false);
+                setIsContentComplete(true);
+                setIsStreamingSessionActive(false);
+                return;
+            }
+
+            const remainingText = aiText.slice(textPosition);
+            
+            // Check for BLANK
+            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
+            if (blankMatch) {
+                setIsTyping(false); // Stop typing
+                setIsWaitingForBlankFill(true);
+                setCurrentBlankAnswer(blankMatch[1]);
+                setTextPosition(textPosition + blankMatch[0].length);
+                return; // End this tick
+            }
+
+            // Check for paragraph break - Custom paragraph break - $$
+            if (remainingText.startsWith('$') && remainingText.charAt(1)=='$') {
+                setIsTyping(false); // Stop typing
+                setTextPosition(textPosition + 2);
+                return; // End this tick
+            }
+
+            // Otherwise, type the next chunk
+            const chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
+            setCurrentParagraph(prev => prev + chunk);
+            setTextPosition(textPosition + chunk.length);
+        };
+
+        // Use a timeout to schedule the next tick. This creates a state-driven loop.
+        const timeoutId = setTimeout(handleTick, TYPING_INTERVAL_MS);
+
+        // Cleanup function to cancel the timeout if the component re-renders or unmounts
+        return () => clearTimeout(timeoutId);
+
+    }, [isTyping, isPaused, textPosition, aiText]);
+
+
+    // --- DISPLAY ANIMATION ---
+    useEffect(() => {
+        if (isPaused || displayPosition >= currentParagraph.length) {
+            // This logic runs when the paragraph has finished displaying
+            if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
+                setTimeout(() => {
+                    if (justCompletedBlank) {
+                        setJustCompletedBlank(false);
+                        if (!isPaused) setIsTyping(true); // Resume typing
+                    } else if (!isWaitingForBlankFill) {
+                        setIsWaitingForFeedback(true);
+                    }
+                }, 200);
+            }
+            return;
+        }
+
+        // Animation loop for displaying the current paragraph
+        const intervalId = setInterval(() => {
+            setDisplayPosition(prev => {
+                const newPos = prev + CHARS_PER_TYPE_INTERVAL;
+                setDisplayedCurrentParagraph(currentParagraph.slice(0, newPos));
+                return newPos;
+            });
+        }, TYPING_INTERVAL_MS);
+
+        return () => clearInterval(intervalId);
+    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank, isWaitingForBlankFill]);
+
+    useEffect(() => {
+        if (currentParagraph === "") {
+            setDisplayPosition(0);
+            setDisplayedCurrentParagraph("");
+        }
+    }, [currentParagraph]);
+    
+    useEffect(() => {
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    }, [completedContent, displayedCurrentParagraph, isWaitingForBlankFill, isWaitingForFeedback, showAIOutput, activeAccordion]);
+
+    // --- EVENT HANDLERS ---
+    const handlePlayPause = () => {
+        if (!currentQuestion) return;
+        if (!isStreamingSessionActive && !isContentComplete) {
+            logButtonClick("start_button_click", { questionId: currentQuestion.id });
+            setIsStreamingSessionActive(true);
+            setIsTyping(true);
+            setIsPaused(false);
+        } else if (isStreamingSessionActive) {
+            logButtonClick(isPaused ? "resume_button_click" : "pause_button_click", { questionId: currentQuestion.id });
+            setIsPaused(!isPaused);
+            setIsTyping(isPaused); // This will resume the main useEffect loop
+        }
+    };
+    
+    const handleReset = () => {
+    logButtonClick("reset_button_click", { questionId: currentQuestion?.id });
+        setIsTyping(false);
+        setIsPaused(false);
+        setIsStreamingSessionActive(false);
+        setIsContentComplete(false);
+        setCompletedContent([]);
+        setCompletedParagraphs([]);
+        setCurrentParagraph("");
+        setDisplayedCurrentParagraph("");
+        setTextPosition(0);
+        setDisplayPosition(0);
+        setIsWaitingForFeedback(false);
+        setIsWaitingForBlankFill(false);
+        setCurrentBlankAnswer(null);
+        setUserInput("");
+        setFeedbackMessage("");
+        setBlankResponses([]);
+        setActiveAccordion(null);
+        setJustCompletedBlank(false);
+        setShowAIOutput(false);
+        setShowAIPrompt(false);
+        setStreamedAIAnswer("");
+    };
+
+    const handleParagraphFeedback = (understood: boolean) => {
+    logButtonClick(understood ? "understand_button_click" : "dont_understand_button_click", { questionId: currentQuestion?.id, paragraph: currentParagraph });
+        const newCompletedParagraph = (
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
+            </ReactMarkdown>
+        );
+
+        const newAccordionData: ParagraphAccordion = {
+            id: `acc-${textPosition}`,
+            position: textPosition,
+            chatMessages: [],
+            paragraphContext: currentParagraph,
+            userFeedback: understood ? "understood" : "did_not_understand",
+        };
+
+        if (understood) {
+            const readOnlyFeedback = (
+                <div key={newAccordionData.id} className="my-4">
+                    <ChatAccordion 
+                        accordionId={newAccordionData.id}
+                        chatMessages={[]}
+                        currentChatInput=""
+                        setCurrentChatInput={() => {}}
+                        onSubmit={() => {}}
+                        isLoadingResponse={false}
+                        isReadOnly={true}
+                        userFeedback="understood"
+                        isDimmed={true}
+                        defaultClosed={true}
+                    />
+                </div>
+            );
+            setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
+            setCompletedParagraphs(prev => [...prev, currentParagraph]);
+            setCurrentParagraph("");
+            setDisplayPosition(0);
+            setIsWaitingForFeedback(false);
+            if (textPosition >= aiText.length) {
+                setIsContentComplete(true);
+                setTimeout(() => setShowAIPrompt(true), 500);
+            } else if (!isPaused) {
+                setIsTyping(true);
+            }
+        } else {
+            setActiveAccordion(newAccordionData);
+        }
+    };
+    
+    const handleContinueAfterChat = () => {
+        if (!activeAccordion) return;
+
+        const newCompletedParagraph = (
+            <ReactMarkdown key={`p-${textPosition}`} components={markdownComponents}>
+                {currentParagraph}
+            </ReactMarkdown>
+        );
+        
+        const readOnlyFeedback = (
+            <div key={activeAccordion.id} className="my-4">
+                <ChatAccordion 
+                    accordionId={activeAccordion.id}
+                    chatMessages={activeAccordion.chatMessages}
+                    currentChatInput=""
+                    setCurrentChatInput={() => {}}
+                    onSubmit={() => {}}
+                    isLoadingResponse={false}
+                    isReadOnly={true}
+                    userFeedback={activeAccordion.userFeedback}
+                    isDimmed={true}
+                    defaultClosed={true}
+                />
+            </div>
+        );
+
+        setCompletedContent(prev => [...prev, newCompletedParagraph, readOnlyFeedback]);
+        setCompletedParagraphs(prev => [...prev, currentParagraph]);
+        setCurrentParagraph("");
+        setDisplayPosition(0);
+        setActiveAccordion(null);
+        setIsWaitingForFeedback(false);
+        if (textPosition >= aiText.length) {
+                setIsContentComplete(true);
+                setTimeout(() => setShowAIPrompt(true), 500);
+            } else if (!isPaused) {
+                setIsTyping(true);
+            }
+    };
+
+    const handleUserInputSubmit = () => {
+        if (!userInput.trim() || !currentBlankAnswer) return;
+        const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+        
+        logButtonClick("blank_answer_submit", {
+            userAnswer: userInput.trim(),
+            correctAnswer: currentBlankAnswer,
+            isCorrect,
+            position: textPosition,
+            questionId: currentQuestion?.id
+        });
+        
+        setBlankResponses(prev => [...prev, { userAnswer: userInput.trim(), correctAnswer: currentBlankAnswer, isCorrect, position: textPosition }]);
+        setFeedbackMessage(isCorrect ? "✓ Correct! Well done!" : "✗ Incorrect. Try again next time!");
+        
+        const answerText = isCorrect
+            ? `**${userInput.trim()}** ✓`
+            : `**${userInput.trim()}** ✗ (Correct Answer: ${currentBlankAnswer})`;
+
+        setCurrentParagraph(prev => prev + answerText);
+        
+        setTimeout(() => {
+            setIsWaitingForBlankFill(false);
+            setFeedbackMessage("");
+            setUserInput("");
+            setCurrentBlankAnswer(null);
+            setJustCompletedBlank(true); // This will trigger the display animation useEffect to resume typing
+        }, FEEDBACK_DURATION_MS);
+    };
+    
+    // --- API & Helper Functions ---
+    const getChatResponseStream = async (userMessage: string, context: string, conversationHistory: any[], onChunk: (chunk: string) => void) => {
+        const response = await fetch("/api/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: userMessage, context, type: "explanation_chat", conversationHistory }),
+        });
+        if (!response.body) throw new Error("No response body");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let aiText = "";
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            aiText += chunk;
+            onChunk(aiText);
+        }
+        return aiText;
+    };
+
+    const handleChatSubmit = async (accordionId: string) => {
+    if (!currentChatInput.trim() || isLoadingResponse || !activeAccordion) return;
+
+    const userMessage = currentChatInput;
+    setCurrentChatInput("");
+    setIsLoadingResponse(true);
+
+    // Compose context: question + completed paragraphs + current paragraph
+    const completedParagraphsText = completedParagraphs.join("\n\n");
+    const currentParagraphText = activeAccordion.paragraphContext;
+    const questionText = currentQuestion?.question || "";
+    const context = `Question: ${questionText}\n\nPrevious: ${completedParagraphsText}\n\nCurrent: ${currentParagraphText}`;
+
+    const updatedAccordion = {
+        ...activeAccordion,
+        chatMessages: [...activeAccordion.chatMessages, { role: "user", message: userMessage }, { role: "ai", message: "" }]
+    };
+    setActiveAccordion(updatedAccordion);
+
+    try {
+        await getChatResponseStream(userMessage, context, activeAccordion.chatMessages, (streamedText) => {
+            setActiveAccordion(prev => {
+                if (!prev) return null;
+                const updatedMessages = [...prev.chatMessages];
+                updatedMessages[updatedMessages.length - 1] = { role: "ai", message: streamedText };
+                return { ...prev, chatMessages: updatedMessages };
+            });
+        });
+    } catch (error) {
+        console.error("Chat error:", error);
+        setActiveAccordion(prev => {
+            if (!prev) return null;
+            const updatedMessages = [...prev.chatMessages];
+            updatedMessages[updatedMessages.length - 1] = { role: "ai", message: "Sorry, I couldn't process that. Please try again." };
+            return { ...prev, chatMessages: updatedMessages };
+        });
+    } finally {
+        setIsLoadingResponse(false);
+    }
+};
+    
+    const handleContinueFromAIOutput = () => {
+        if (currentQuestionIndex < allQuestions.length - 1) {
+            const nextIndex = currentQuestionIndex + 1;
+            setCurrentQuestion(allQuestions[nextIndex]);
+            setCurrentQuestionIndex(nextIndex);
+            handleReset();
+        } else {
+             alert("Congratulations! You've completed all questions!");
+        }
+    };
+    
+    const showAIAnswer = async () => {
+    await logButtonClick("ok_ai_output_button_click", { questionId: currentQuestion?.id });
+        setShowAIPrompt(false);
+        setShowAIOutput(true);
+        setIsStreamingAIAnswer(true);
+        const answer = currentQuestion?.answer || "";
+        for (let i = 0; i <= answer.length; i++) {
+            setStreamedAIAnswer(answer.slice(0, i));
+            await new Promise(res => setTimeout(res, 15));
+        }
+        setIsStreamingAIAnswer(false);
+    };
+
+    const getButtonState = () => {
+        if (isContentComplete) return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
+        if (!currentQuestion) return { text: "Loading...", color: "bg-gray-500", disabled: true };
+        if (!isStreamingSessionActive) return { text: "Start", color: "bg-blue-500 hover:bg-blue-600", disabled: false };
+        if (isPaused) return { text: "Resume", color: "bg-emerald-500 hover:bg-emerald-600", disabled: false };
+        return { text: "Pause", color: "bg-violet-500 hover:bg-violet-600", disabled: false };
+    };
+    const buttonState = getButtonState();
+
+    if (isLoadingQuestions) {
+        return (
+            <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <div>Loading questions...</div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentQuestion) {
+        return (
+            <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <div className="text-center">
+                    <div className="text-red-400 text-xl mb-2">⚠️</div>
+                    <div>No questions available.</div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-black text-white flex flex-col">
+            {/* Logout button at top right */}
+            <div className="w-full flex justify-end p-4">
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white font-semibold shadow transition-all"
+              >
+                Logout
+              </button>
+            </div>
+            <div className="flex-1 max-w-6xl mx-auto w-full p-4">
+                <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    AI Thinking
+                </h1>
+                
+                <div className="mb-6 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-xl p-6 border border-slate-600/50 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                            <span className="text-white font-bold text-sm">Q</span>
+                        </div>
+                        <h2 className="text-xl font-semibold text-slate-200">Question</h2>
+                    </div>
+                    <div className="whitespace-pre-line text-lg text-white mb-3 leading-relaxed">
+                        {currentQuestion.question}
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <p className="text-sm text-slate-400">
+                            Question {currentQuestionIndex + 1} of {allQuestions.length}
+                        </p>
+                        <div className="flex gap-1">
+                            {allQuestions.map((_, i) => (
+                                <div key={i} className={`w-2 h-2 rounded-full ${i === currentQuestionIndex ? 'bg-blue-500' : i < currentQuestionIndex ? 'bg-green-500' : 'bg-slate-600'}`} />
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-6">
+                    <button onClick={handlePlayPause} disabled={buttonState.disabled} className={`${buttonState.color} ${buttonState.disabled ? 'opacity-50 cursor-not-allowed' : ''} text-white font-bold py-3 px-6 rounded-xl mr-3 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105`}>
+                        {buttonState.text}
+                    </button>
+                    <button onClick={handleReset} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        Reset
+                    </button>
+                </div>
+
+                <div className="font-sans text-lg mt-6">
+                    {completedContent}
+
+                    {displayedCurrentParagraph && ( <ReactMarkdown components={markdownComponents}>{displayedCurrentParagraph}</ReactMarkdown> )}
+
+                    {isWaitingForBlankFill && (
+                        <ModernBlankInput
+                            userInput={userInput}
+                            setUserInput={setUserInput}
+                            onSubmit={handleUserInputSubmit}
+                            feedbackMessage={feedbackMessage}
+                        />
+                    )}
+                    
+                    {isWaitingForFeedback && !activeAccordion && !isWaitingForBlankFill && !justCompletedBlank && (
+                        <div className="block mt-4 p-4 bg-slate-800/80 rounded-lg border border-slate-600/50 backdrop-blur-sm">
+                            <div className="text-blue-300 mb-3 font-medium">Am I making sense?</div>
+                            <div className="flex items-center space-x-4">
+                                <button onClick={() => handleParagraphFeedback(true)} className="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors text-white">
+                                    <span className="text-xl mr-2">👍</span>
+                                    <span>Yes, continue</span>
+                                </button>
+                                <button onClick={() => handleParagraphFeedback(false)} className="flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-white">
+                                    <span className="text-xl mr-2">❓</span>
+                                    <span>I don't understand</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeAccordion && (
+                        <ChatAccordion
+                            accordionId={activeAccordion.id}
+                            chatMessages={activeAccordion.chatMessages}
+                            currentChatInput={currentChatInput}
+                            setCurrentChatInput={setCurrentChatInput}
+                            onSubmit={handleChatSubmit}
+                            isLoadingResponse={isLoadingResponse}
+                            isReadOnly={false}
+                            userFeedback={activeAccordion.userFeedback}
+                            onContinue={handleContinueAfterChat}
+                            isDimmed={false}
+                            defaultClosed={false}
+                        />
+                    )}
+
+                    {showAIPrompt && !showAIOutput && (
+                        <div className="flex flex-col items-center justify-center my-12">
+                            <div className="bg-gradient-to-r from-emerald-900/60 to-teal-900/60 p-8 rounded-2xl border border-emerald-500/20 shadow-xl max-w-lg w-full text-center">
+                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI responded with.</h3>
+                                <button onClick={showAIAnswer} className="mt-4 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105">
+                                    Ok
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {showAIOutput && currentQuestion?.answer && (
+                        <ModernAIOutputDisplay
+                            answer={streamedAIAnswer}
+                            onContinue={handleContinueFromAIOutput}
+                            buttonText={currentQuestionIndex < allQuestions.length - 1 ? "Next Question" : "Finish"}
+                            loading={isStreamingAIAnswer}
+                            markdownComponents={markdownComponents}
+                        />
+                    )}
+
+                    {/*{showAIOutput && currentQuestion?.answer && (
+                        <PerformanceSummary
+                            blankResponses={blankResponses}
+                            isContentComplete={isContentComplete}
+                        />
+                    )}*/}
+                </div>
+
+                <div ref={bottomRef} />
+            </div>
+        </div>
+    );
+}
+
+export default StreamingPage;
