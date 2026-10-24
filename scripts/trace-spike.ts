@@ -87,7 +87,13 @@ async function main() {
   let error: Record<string, unknown> | null = null;
   let tLastContent: number | null = null;
   let abortedBy: "idle" | "overall" | null = null;
-  const redact = (t: string) => t.split(apiKey!).join("[REDACTED]").replace(/sk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]");
+  // Applied to all error text that is printed or saved: full key, masked forms ("****xxxx"), key tail.
+  const keyTail = apiKey!.length >= 8 ? apiKey!.slice(-4) : null;
+  const redact = (t: string) => {
+    let out = t.split(apiKey!).join("[REDACTED]").replace(/sk-[A-Za-z0-9_-]{8,}/g, "[REDACTED]").replace(/\*{3,}[A-Za-z0-9_-]{0,8}/g, "[REDACTED]");
+    if (keyTail) out = out.split(keyTail).join("[REDACTED]");
+    return out;
+  };
 
   const t0 = performance.now();
   const ctrl = new AbortController();
@@ -128,10 +134,10 @@ async function main() {
   } catch (e: any) {
     const cause = e?.cause;
     error = {
-      name: e?.name ?? "Error",
+      name: redact(String(e?.name ?? "Error")),
       status: e?.status,
-      code: e?.code ?? cause?.code,
-      causeName: cause?.name,
+      code: (e?.code ?? cause?.code) ? redact(String(e?.code ?? cause?.code)) : undefined,
+      causeName: cause?.name ? redact(String(cause.name)) : undefined,
       causeMessage: cause?.message ? redact(String(cause.message)) : undefined,
       message: redact(String(e?.message ?? e)),
       abortedBy,
