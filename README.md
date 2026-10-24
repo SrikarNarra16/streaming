@@ -6,15 +6,15 @@ It is a research tool used with study participants, so the data in the database 
 
 ## Quick Start
 
-Prerequisites: Node.js 18+ (tested here on v26), PostgreSQL, a DeepSeek API key.
+Prerequisites: Node.js 20+ (tested here on v26), PostgreSQL, a DeepSeek API key.
 
 1. **Install dependencies**
 
    ```bash
-   npx pnpm@8 install --no-lockfile
+   npx pnpm@8 install --frozen-lockfile
    ```
 
-   The repo contains three lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `bun.lock`). `pnpm-lock.yaml` is lockfile v6 and is out of date (it is missing `nprogress`), so `pnpm install --frozen-lockfile` fails, and pnpm 11 refuses to read it at all. The command above uses pnpm 8 and ignores the lockfile, so versions are resolved fresh from `package.json` and no lockfile is written.
+   `pnpm-lock.yaml` is the only lockfile (lockfile v6, generated with pnpm 8.15.9, which is also pinned in the `packageManager` field of `package.json`). pnpm 8 is required: pnpm 11 cannot read a v6 lockfile. Do not add `package-lock.json` or `bun.lock`. To change dependencies, use `npx pnpm@8 add <package>` so the lockfile stays in sync.
 
 2. **Configure environment variables**
 
