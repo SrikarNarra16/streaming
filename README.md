@@ -144,3 +144,17 @@ Login sets an HTTP-only `userId` cookie (7 days, `sameSite: strict`). The cookie
 Only two are read by the code: `DATABASE_URL` and `DEEPSEEK_API_KEY` (see `.env.example`). Both are read when first needed, not at import time. A missing `DATABASE_URL` raises a clear error on the first database query, and a missing `DEEPSEEK_API_KEY` makes `/api/generate` return a generic 500 and log `ai_not_configured`.
 
 Known issue: `next build` currently fails (lint errors, and `useSearchParams()` in `app/auth/login/page.tsx` is not wrapped in a Suspense boundary), so only `next dev` is verified.
+
+## Known audit findings
+
+`npx pnpm@8 audit` on 2026-10-24, after upgrading to Next.js 15.5.28, drizzle-orm 0.45.4 and sharp 0.35.5 (before the upgrade it reported 4 critical, 19 high, 20 moderate and 2 low). Five findings remain, and they are accepted for now. No overrides are used. Revisit them when Next.js or drizzle-kit ships newer dependencies.
+
+| Package | Severity | Advisory | Pulled in by | Why it is accepted (assessment basis) |
+|---|---|---|---|---|
+| postcss 8.4.31: arbitrary file read and information disclosure | high | [GHSA-6g55-p6wh-862q](https://github.com/advisories/GHSA-6g55-p6wh-862q) (CVE-2026-45623) | `next` (exact pin, also in 15.5.28) | Judged from the advisory title and how this app uses postcss: the app does not process untrusted CSS (styles come from the repo and are built by Tailwind, which uses its own patched postcss). The full advisory was not reviewed. |
+| postcss 8.4.31: path traversal in previous source map auto-loading | high | [GHSA-r28c-9q8g-f849](https://github.com/advisories/GHSA-r28c-9q8g-f849) (CVE-2026-73646) | `next` (exact pin) | Same basis as above: title and app usage only; the full advisory was not reviewed. |
+| postcss 8.4.31: incomplete fix of GHSA-6g55-p6wh-862q | moderate | [GHSA-fxqj-rqcc-2cmp](https://github.com/advisories/GHSA-fxqj-rqcc-2cmp) (CVE-2026-69153) | `next` (exact pin) | Same basis as above: title and app usage only; the full advisory was not reviewed. |
+| postcss 8.4.31: XSS via unescaped `</style>` in CSS stringify output | moderate | [GHSA-qx2v-qp2m-jg93](https://github.com/advisories/GHSA-qx2v-qp2m-jg93) (CVE-2026-41305) | `next` (exact pin) | Same basis as above: title and app usage only; the full advisory was not reviewed. |
+| esbuild 0.18.20: any website can send requests to the development server | moderate | [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | `drizzle-kit` > `@esbuild-kit/esm-loader` > `@esbuild-kit/core-utils` | Judged from the advisory title and how this app uses it: dev tooling only, not part of the running app, and `drizzle-kit` is not known to start esbuild's dev server. The latest drizzle-kit (0.31.11) still depends on these packages. The full advisory was not reviewed. |
+
+Revisit all of these before hosting the app for participants.
