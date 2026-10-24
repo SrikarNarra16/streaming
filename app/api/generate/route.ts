@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import OpenAI from "openai";
 import { logger } from "@/lib/logger";
+import { requireEnv } from "@/lib/env";
 
 // Only non-sensitive fields: error messages can contain fragments of the API key.
 function describeError(error: unknown) {
@@ -51,9 +52,24 @@ export async function POST(request: NextRequest) {
       userId
     );
 
+    let apiKey: string;
+    try {
+      apiKey = requireEnv("DEEPSEEK_API_KEY");
+    } catch {
+      await logger.error(
+        "ai_not_configured",
+        { variable: "DEEPSEEK_API_KEY" },
+        userId
+      );
+      return NextResponse.json(
+        { error: "The AI service could not process this request." },
+        { status: 500 }
+      );
+    }
+
     const openai = new OpenAI({
       baseURL: "https://api.deepseek.com",
-      apiKey: process.env.DEEPSEEK_API_KEY,
+      apiKey,
     });
 
     let systemPrompt = "";

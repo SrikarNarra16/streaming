@@ -1,0 +1,8 @@
+// Read lazily (at first use, not at import time) so `next build` works without env vars.
+export function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value || !value.trim()) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
