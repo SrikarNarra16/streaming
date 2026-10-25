@@ -122,7 +122,7 @@ INSERT INTO questions (question, content, answer) VALUES (
 - `components/ui/accordion.tsx`: base accordion (shadcn/ui).
 - `lib/db.ts`: Drizzle/Postgres connection, created on first use. `lib/env.ts`: `requireEnv()`, which throws a clear error for a missing variable. `lib/session.ts`: signed session tokens. `lib/log-actions.ts`: the list of log actions the client may send. `lib/logger.ts`: writes to the `logs` table. `lib/utils.ts`: class-name helper.
 - `middleware.ts`: redirects `/streaming` to `/auth/login` unless the `session` cookie holds a valid, unexpired, correctly signed token.
-- `scripts/seed.ts`, `scripts/reset-db.js`: database helpers. `scripts/trace-spike.ts`: standalone DeepSeek thinking-mode measurement script (not part of the app).
+- `scripts/seed.ts`, `scripts/reset-db.js`: database helpers. `scripts/trace-spike.ts` and `scripts/trace-live-smoke.ts`: standalone DeepSeek measurement scripts (not part of the app). They make real, billed requests, so each refuses to run without `--live` (it exits before loading `.env.local`). Run them yourself, for example `node_modules/.bin/tsx scripts/trace-live-smoke.ts "<prompt>" --live`.
 - `logs_analyze.py`: analysis helper for exported logs.
 
 ## Timing constants
@@ -155,6 +155,7 @@ Optional, for the live thinking-trace provider in `lib/trace/` (not wired into t
 
 - `DEEPSEEK_TRACE_MODEL`: the model that produces the reasoning trace (default `deepseek-flash`). A value that is empty or contains characters other than letters, digits, `.`, `_` and `-` is ignored and the default is used.
 - `DEEPSEEK_TRACE_MAX_TOKENS`: the `max_tokens` limit for one trace request (default `8000`). Reasoning tokens count inside `max_tokens`, so keep it generous: a trace that hits the limit ends with finish reason `length`. Values that are not whole numbers between 256 and 100000 are ignored and the default is used.
+- `DEEPSEEK_TRACE_EFFORT`: the reasoning effort (`low`, `high` or `max`), sent as the request parameter `reasoning_effort`. It is **unset by default**: nothing is sent and DeepSeek's own default applies. Any other value is ignored, as if it were unset.
 
 Known issue: `next build` currently fails (lint errors, and `useSearchParams()` in `app/auth/login/page.tsx` is not wrapped in a Suspense boundary), so only `next dev` is verified.
 

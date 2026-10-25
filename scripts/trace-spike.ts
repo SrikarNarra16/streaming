@@ -1,10 +1,19 @@
 // Standalone measurement of DeepSeek thinking-mode streaming. Not part of the app.
-// Usage: node_modules/.bin/tsx scripts/trace-spike.ts --model deepseek-flash --problem spiral [--effort low|high|max] [--effort-in top|thinking]
-import * as dotenv from "dotenv";
-import OpenAI from "openai";
+// Usage: node_modules/.bin/tsx scripts/trace-spike.ts --live --model deepseek-flash --problem spiral [--effort low|high|max] [--effort-in top|thinking]
+//
+// THIS SCRIPT MAKES REAL, BILLED DEEPSEEK REQUESTS. It must be run by a person, never by an automated tool.
+// Without --live it prints the usage line and a warning and exits with code 1, before it loads .env.local,
+// reads any environment variable or creates a client. dotenv and openai are loaded (dynamically) only after
+// that check, inside main().
 import { mkdirSync, writeFileSync } from "node:fs";
 
-dotenv.config({ path: ".env.local" });
+const USAGE =
+  "Usage: node_modules/.bin/tsx scripts/trace-spike.ts --live --model <name> --problem <vowels|spiral|spiral_full|bsearch> [--effort low|high|max] [--effort-in top|thinking] [--system <text>] [--plain]";
+const LIVE_REQUIRED = "This script makes real, billed DeepSeek requests. Add --live to run it.";
+if (!process.argv.includes("--live")) {
+  console.error(`${USAGE}\n${LIVE_REQUIRED}`);
+  process.exit(1);
+}
 
 const MAX_TOKENS = 8000; // hard cap per request
 const TIMEOUT_MS = 3 * 60 * 1000;
@@ -45,12 +54,7 @@ const effortIn = arg("effort-in") ?? "top";
 const system = arg("system");
 const plain = process.argv.includes("--plain"); // omit thinking/effort params entirely (legacy model names)
 if (!model || !problemKey || !PROBLEMS[problemKey] || !["top", "thinking"].includes(effortIn)) {
-  console.error("Usage: --model <name> --problem <vowels|spiral|spiral_full|bsearch> [--effort low|high|max] [--effort-in top|thinking]");
-  process.exit(1);
-}
-const apiKey = process.env.DEEPSEEK_API_KEY;
-if (!apiKey || apiKey.includes("your_deepseek_api_key")) {
-  console.error("DEEPSEEK_API_KEY missing or still the placeholder in .env.local");
+  console.error(USAGE);
   process.exit(1);
 }
 
@@ -59,6 +63,15 @@ const countWords = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0);
 const countParagraphs = (t: string) => t.split(/\n\s*\n/).filter((p) => p.trim()).length;
 
 async function main() {
+  // Only now (after the --live check above): load .env.local, read the key, create the client.
+  const dotenv = await import("dotenv");
+  dotenv.config({ path: ".env.local" });
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey || apiKey.includes("your_deepseek_api_key")) {
+    console.error("DEEPSEEK_API_KEY missing or still the placeholder in .env.local");
+    process.exit(1);
+  }
+  const { default: OpenAI } = await import("openai");
   const client = new OpenAI({ baseURL: "https://api.deepseek.com", apiKey, maxRetries: 0 });
 
   const body: any = {

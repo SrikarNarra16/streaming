@@ -2,7 +2,8 @@
 // file never reads environment variables or keys; see deepseek-client.ts for the real client.
 //
 // Request: one user message (the prompt), no system prompt, stream: true, stream_options.include_usage,
-// thinking enabled. max_tokens includes the hidden reasoning tokens, so a trace that hits the limit ends
+// thinking enabled (or disabled if configured), and reasoning_effort only if an effort is configured.
+// max_tokens includes the hidden reasoning tokens, so a trace that hits the limit ends
 // with finish_reason "length": the `done` event then carries finishReason "length" so the consumer can
 // tell that the output was cut off by the token limit and not finished.
 //
@@ -34,13 +35,19 @@ export interface DeepSeekChunk {
   } | null;
 }
 
+/** DeepSeek's reasoning effort. Left unset, the API's own default applies. */
+export const TRACE_EFFORTS = ["low", "high", "max"] as const;
+export type TraceEffort = (typeof TRACE_EFFORTS)[number];
+
 export interface DeepSeekRequestParams {
   model: string;
   messages: Array<{ role: "user"; content: string }>;
   max_tokens: number;
   stream: true;
   stream_options: { include_usage: true };
-  thinking: { type: "enabled" };
+  thinking: { type: "enabled" | "disabled" };
+  /** Only present when an effort was configured. */
+  reasoning_effort?: TraceEffort;
 }
 
 /** The part of the openai SDK client that the provider uses. */
@@ -56,6 +63,10 @@ export interface DeepSeekProviderConfig {
   client: DeepSeekClient;
   model: string;
   maxTokens: number;
+  /** Sent as the top-level `reasoning_effort` request parameter. Unset: nothing is sent. */
+  effort?: TraceEffort;
+  /** Default "enabled". "disabled" sends thinking: { type: "disabled" }: no reasoning deltas, only answer deltas. */
+  thinking?: "enabled" | "disabled";
 }
 
 const isNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -134,7 +145,8 @@ export function createDeepSeekProvider(config: DeepSeekProviderConfig): TracePro
           max_tokens: config.maxTokens,
           stream: true,
           stream_options: { include_usage: true },
-          thinking: { type: "enabled" },
+          thinking: { type: config.thinking ?? "enabled" },
+          ...(config.effort !== undefined ? { reasoning_effort: config.effort } : {}),
         };
         // Opening the stream is raced against the abort too, in case a client ignores the signal.
         const created = Promise.resolve(config.client.chat.completions.create(params, { signal }));

@@ -1,7 +1,7 @@
 // Builds the real DeepSeek client (the openai SDK pointed at DeepSeek) and reads the trace settings.
 // The key is read only when createDeepSeekClientFromEnv() is called, and it is never logged or put in an error.
 import OpenAI from "openai";
-import type { DeepSeekClient } from "./deepseek-provider";
+import { TRACE_EFFORTS, type DeepSeekClient, type TraceEffort } from "./deepseek-provider";
 
 export const DEFAULT_TRACE_MODEL = "deepseek-flash";
 /** Reasoning tokens count inside max_tokens, so the default is generous. */
@@ -22,8 +22,11 @@ export function createDeepSeekClientFromEnv(env: Env = process.env): DeepSeekCli
   return new OpenAI({ baseURL: "https://api.deepseek.com", apiKey, maxRetries: 0 }) as unknown as DeepSeekClient;
 }
 
-/** DEEPSEEK_TRACE_MODEL and DEEPSEEK_TRACE_MAX_TOKENS, each with a fallback to its default if missing or invalid. */
-export function readTraceSettingsFromEnv(env: Env = process.env): { model: string; maxTokens: number } {
+/**
+ * DEEPSEEK_TRACE_MODEL and DEEPSEEK_TRACE_MAX_TOKENS, each with a fallback to its default if missing or invalid,
+ * and DEEPSEEK_TRACE_EFFORT (low, high or max; unset by default, anything else is ignored).
+ */
+export function readTraceSettingsFromEnv(env: Env = process.env): { model: string; maxTokens: number; effort?: TraceEffort } {
   const rawModel = env.DEEPSEEK_TRACE_MODEL?.trim();
   const model = rawModel && /^[A-Za-z0-9._-]{1,64}$/.test(rawModel) ? rawModel : DEFAULT_TRACE_MODEL;
 
@@ -33,5 +36,7 @@ export function readTraceSettingsFromEnv(env: Env = process.env): { model: strin
     const parsed = Number(rawTokens);
     if (parsed >= MIN_TRACE_MAX_TOKENS && parsed <= MAX_TRACE_MAX_TOKENS) maxTokens = parsed;
   }
-  return { model, maxTokens };
+  const rawEffort = env.DEEPSEEK_TRACE_EFFORT?.trim();
+  const effort = TRACE_EFFORTS.find((e) => e === rawEffort);
+  return effort ? { model, maxTokens, effort } : { model, maxTokens };
 }
