@@ -3,11 +3,12 @@ import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { questions } from "@/schema";
 import { logger } from "@/lib/logger";
+import { getSessionUserId } from "@/lib/session";
 
 export async function GET() {
   try {
     const cookieStore = await cookies(); // Add await here
-    const userId = cookieStore.get("userId")?.value;
+    const userId = (await getSessionUserId(cookieStore)) ?? undefined;
 
     if (!userId) {
       await logger.warn("questions_access_denied", {

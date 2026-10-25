@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import OpenAI from "openai";
 import { logger } from "@/lib/logger";
 import { requireEnv } from "@/lib/env";
+import { getSessionUserId } from "@/lib/session";
 
 // Only non-sensitive fields: error messages can contain fragments of the API key.
 function describeError(error: unknown) {
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   let prompt = "";
   try {
     const cookieStore = await cookies();
-    userId = cookieStore.get("userId")?.value;
+    userId = (await getSessionUserId(cookieStore)) ?? undefined;
 
     if (!userId) {
       await logger.warn("ai_generate_access_denied", {

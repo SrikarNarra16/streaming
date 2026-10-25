@@ -1,15 +1,44 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/schema";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: Request) {
   try {
-    const { name, email, password } = await request.json();
+    const body = await request.json();
+    const { email, password } = body;
+    const name = typeof body.name === "string" ? body.name.trim() : body.name;
 
     if (!name || !email || !password) {
       return NextResponse.json(
         { error: "Name, email, and password are required" },
+        { status: 400 }
+      );
+    }
+
+    if (typeof name !== "string" || name.length < 1 || name.length > 100) {
+      return NextResponse.json(
+        { error: "Name must be 1 to 100 characters" },
+        { status: 400 }
+      );
+    }
+    if (typeof email !== "string" || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json(
+        { error: "Email address is not valid" },
+        { status: 400 }
+      );
+    }
+    if (typeof password !== "string" || password.length < 8) {
+      return NextResponse.json(
+        { error: "Password must be at least 8 characters" },
+        { status: 400 }
+      );
+    }
+    // bcrypt only uses the first 72 bytes of a password, so longer ones are rejected.
+    if (new TextEncoder().encode(password).length > 72) {
+      return NextResponse.json(
+        { error: "Password must be at most 72 bytes" },
         { status: 400 }
       );
     }
@@ -28,13 +57,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create user with plain text password
+    // Store only the bcrypt hash (cost 12)
     const newUser = await db
       .insert(users)
       .values({
         name,
         email,
-        password, // Plain text password
+        password: await bcrypt.hash(password, 12),
       })
       .returning();
 

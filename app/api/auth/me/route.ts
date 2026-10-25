@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { getSessionUserId } from "@/lib/session";
 import { users } from "@/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userId = cookieStore.get("userId")?.value;
+    const userId = await getSessionUserId(cookieStore);
 
     if (!userId) {
       return NextResponse.json(
