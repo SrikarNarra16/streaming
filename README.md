@@ -141,7 +141,7 @@ Login sets an HTTP-only `userId` cookie (7 days, `sameSite: strict`). The cookie
 
 ## Environment variables
 
-Only two are read by the code: `DATABASE_URL` and `DEEPSEEK_API_KEY` (see `.env.example`). Both are read when first needed, not at import time. A missing `DATABASE_URL` raises a clear error on the first database query, and a missing `DEEPSEEK_API_KEY` makes `/api/generate` return a generic 500 and log `ai_not_configured`.
+`DATABASE_URL` and `DEEPSEEK_API_KEY` are required, and `DEEPSEEK_CHAT_MODEL` is optional (see `.env.example`). The two required ones are read when first needed, not at import time. A missing `DATABASE_URL` raises a clear error on the first database query, and a missing `DEEPSEEK_API_KEY` makes `/api/generate` return a generic 500 and log `ai_not_configured`.
 
 Optional: `DEEPSEEK_CHAT_MODEL` sets the model used by the doubt-chat (default `deepseek-flash`; thinking is disabled for the tutor chat so the short answer is not used up by reasoning tokens).
 
