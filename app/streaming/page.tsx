@@ -133,6 +133,14 @@ function StreamingPage() {
     
     const bottomRef = useRef<HTMLDivElement>(null);
 
+    // Token for the showAIAnswer loop: incremented to cancel it (on reset, next question and unmount).
+    const answerStreamTokenRef = useRef(0);
+    useEffect(() => {
+        return () => {
+            answerStreamTokenRef.current += 1;
+        };
+    }, []);
+
     // Fetch all questions on component mount
     useEffect(() => {
         const fetchQuestions = async () => {
@@ -265,8 +273,12 @@ function StreamingPage() {
         }
     };
     
-    const handleReset = () => {
-    logButtonClick("reset_button_click", { questionId: currentQuestion?.id });
+    // Clears all learner-visible state. Used by the Reset button and when moving to the next
+    // question. It writes no log entry: only a real Reset click does (see handleReset).
+    const resetStreamingState = () => {
+        // Cancel an in-flight showAIAnswer loop so it stops writing state
+        answerStreamTokenRef.current += 1;
+        setIsStreamingAIAnswer(false);
         setIsTyping(false);
         setIsPaused(false);
         setIsStreamingSessionActive(false);
@@ -288,6 +300,11 @@ function StreamingPage() {
         setShowAIOutput(false);
         setShowAIPrompt(false);
         setStreamedAIAnswer("");
+    };
+
+    const handleReset = () => {
+    logButtonClick("reset_button_click", { questionId: currentQuestion?.id });
+        resetStreamingState();
     };
 
     const handleParagraphFeedback = (understood: boolean) => {
@@ -477,22 +494,26 @@ function StreamingPage() {
             const nextIndex = currentQuestionIndex + 1;
             setCurrentQuestion(allQuestions[nextIndex]);
             setCurrentQuestionIndex(nextIndex);
-            handleReset();
+            resetStreamingState();
         } else {
              alert("Congratulations! You've completed all questions!");
         }
     };
     
     const showAIAnswer = async () => {
+        const token = ++answerStreamTokenRef.current;
     await logButtonClick("ok_ai_output_button_click", { questionId: currentQuestion?.id });
+        if (answerStreamTokenRef.current !== token) return; // cancelled while the log request was in flight
         setShowAIPrompt(false);
         setShowAIOutput(true);
         setIsStreamingAIAnswer(true);
         const answer = currentQuestion?.answer || "";
         for (let i = 0; i <= answer.length; i++) {
+            if (answerStreamTokenRef.current !== token) return; // reset, next question or unmount
             setStreamedAIAnswer(answer.slice(0, i));
             await new Promise(res => setTimeout(res, 15));
         }
+        if (answerStreamTokenRef.current !== token) return;
         setIsStreamingAIAnswer(false);
     };
 
