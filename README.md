@@ -151,6 +151,11 @@ Changing `SESSION_SECRET` signs everyone out. Anyone can still register an accou
 
 Optional: `DEEPSEEK_CHAT_MODEL` sets the model used by the doubt-chat (default `deepseek-flash`; thinking is disabled for the tutor chat so the short answer is not used up by reasoning tokens).
 
+Optional, for the live thinking-trace provider in `lib/trace/` (not wired into the app yet; read by `readTraceSettingsFromEnv()` in `lib/trace/deepseek-client.ts`):
+
+- `DEEPSEEK_TRACE_MODEL`: the model that produces the reasoning trace (default `deepseek-flash`). A value that is empty or contains characters other than letters, digits, `.`, `_` and `-` is ignored and the default is used.
+- `DEEPSEEK_TRACE_MAX_TOKENS`: the `max_tokens` limit for one trace request (default `8000`). Reasoning tokens count inside `max_tokens`, so keep it generous: a trace that hits the limit ends with finish reason `length`. Values that are not whole numbers between 256 and 100000 are ignored and the default is used.
+
 Known issue: `next build` currently fails (lint errors, and `useSearchParams()` in `app/auth/login/page.tsx` is not wrapped in a Suspense boundary), so only `next dev` is verified.
 
 ## Known audit findings
