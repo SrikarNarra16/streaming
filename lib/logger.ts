@@ -4,7 +4,7 @@ import { logs } from "@/schema";
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface LogDetails {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export async function logAction(

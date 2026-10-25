@@ -64,7 +64,7 @@ const markdownComponents = {
 
 function StreamingPage() {
   // --- LOGGING FUNCTION ---
-  const logButtonClick = async (action: string, details: any = {}, level: string = "info") => {
+  const logButtonClick = async (action: string, details: Record<string, unknown> = {}, level: string = "info") => {
     try {
       await fetch("/api/logs", {
         method: "POST",
@@ -410,7 +410,7 @@ function StreamingPage() {
     };
     
     // --- API & Helper Functions ---
-    const getChatResponseStream = async (userMessage: string, context: string, conversationHistory: any[], onChunk: (chunk: string) => void) => {
+    const getChatResponseStream = async (userMessage: string, context: string, conversationHistory: { role: string; message: string }[], onChunk: (chunk: string) => void) => {
         const response = await fetch("/api/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -598,7 +598,7 @@ function StreamingPage() {
                                 </button>
                                 <button onClick={() => handleParagraphFeedback(false)} className="flex items-center px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors text-white">
                                     <span className="text-xl mr-2">❓</span>
-                                    <span>I don't understand</span>
+                                    <span>I don&apos;t understand</span>
                                 </button>
                             </div>
                         </div>
@@ -623,7 +623,7 @@ function StreamingPage() {
                     {showAIPrompt && !showAIOutput && (
                         <div className="flex flex-col items-center justify-center my-12">
                             <div className="bg-gradient-to-r from-emerald-900/60 to-teal-900/60 p-8 rounded-2xl border border-emerald-500/20 shadow-xl max-w-lg w-full text-center">
-                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let's see what the AI responded with.</h3>
+                                <h3 className="text-2xl font-bold text-emerald-200 mb-3">Now let&apos;s see what the AI responded with.</h3>
                                 <button onClick={showAIAnswer} className="mt-4 px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-xl transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105">
                                     Ok
                                 </button>

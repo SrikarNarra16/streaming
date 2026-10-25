@@ -2,7 +2,7 @@
 "use client";
 
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 
 export function ModernAIOutputDisplay({ 
     answer, 
@@ -15,7 +15,7 @@ export function ModernAIOutputDisplay({
     onContinue: () => void;
     buttonText?: string;
     loading?: boolean;
-    markdownComponents: any;
+    markdownComponents: Components;
 }) {
     return (
         <div className="my-8 p-8 bg-gradient-to-br from-emerald-900/30 to-teal-900/30 border border-emerald-500/40 rounded-2xl backdrop-blur-sm shadow-2xl">
@@ -26,8 +26,8 @@ export function ModernAIOutputDisplay({
                     </svg>
                 </div>
                 <div>
-                    <h3 className="text-2xl font-bold text-emerald-300 mb-1">Now let's see the AI output!</h3>
-                    <p className="text-emerald-200/80">Here's the complete solution from our AI system</p>
+                    <h3 className="text-2xl font-bold text-emerald-300 mb-1">Now let&apos;s see the AI output!</h3>
+                    <p className="text-emerald-200/80">Here&apos;s the complete solution from our AI system</p>
                 </div>
             </div>
             

@@ -65,8 +65,8 @@ export async function POST(request: NextRequest) {
       message: "Login successful",
       user: { id: user[0].id, name: user[0].name, email: user[0].email },
     });
-  } catch (error: any) {
-    await logger.error("login_error", { error: error.message });
+  } catch (error) {
+    await logger.error("login_error", { error: error instanceof Error ? error.message : String(error) });
     console.error("Login error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
