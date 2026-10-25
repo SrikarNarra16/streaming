@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "db:hash-passwords": "tsx scripts/hash-passwords.ts",
     "db:reset": "node scripts/reset-db.js"
   },
   "dependencies": {
