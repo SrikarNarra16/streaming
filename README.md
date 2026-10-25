@@ -27,6 +27,7 @@ Prerequisites: Node.js 20+ (tested here on v26), PostgreSQL, a DeepSeek API key.
    ```env
    DATABASE_URL=postgresql://username:password@localhost:5432/database_name
    DEEPSEEK_API_KEY=your_deepseek_api_key_here
+   SESSION_SECRET=<at least 32 random characters, for example the output of: openssl rand -hex 32>
    ```
 
    `.env.local` is git-ignored; never commit it. Only `.env.example` is tracked.
@@ -75,6 +76,7 @@ Prerequisites: Node.js 20+ (tested here on v26), PostgreSQL, a DeepSeek API key.
 |---|---|
 | `npx drizzle-kit push` | Applies `schema.ts` to the database |
 | `npx pnpm@8 db:seed` | Inserts the sample questions (idempotent) |
+| `npx pnpm@8 db:hash-passwords -- --yes` | Replaces any plain-text passwords with bcrypt hashes. Prints the database host and name first, refuses without `--yes`, never prints passwords or hashes, and skips rows that are already hashed (safe to run twice). |
 | `npx pnpm@8 db:reset -- --yes` | **Drops** `users`, `questions` and `logs` and recreates them empty from the schema. Refuses to run without `--yes` and prints the target host and database name (never the password) first. |
 | `npx pnpm@8 db:generate` | `drizzle-kit generate` |
 | `npx pnpm@8 db:studio` | Opens Drizzle Studio |
@@ -114,12 +116,12 @@ INSERT INTO questions (question, content, answer) VALUES (
 - `app/auth/login/page.tsx`, `app/auth/register/page.tsx`: login and registration pages. `app/page.tsx` redirects to `/streaming` or `/auth/login`.
 - `app/api/auth/{login,logout,register,me}/route.ts`: authentication endpoints.
 - `app/api/questions/route.ts`: returns all questions (401 when not logged in).
-- `app/api/generate/route.ts`: streams doubt-chat answers from DeepSeek (model `deepseek-chat`). Failures return a generic JSON 500 error; details go to the `logs` table.
-- `app/api/logs/route.ts`: client-side activity logging.
+- `app/api/generate/route.ts`: streams doubt-chat answers from DeepSeek (the model comes from `DEEPSEEK_CHAT_MODEL`, default `deepseek-flash`, with thinking disabled). Failures return a generic JSON 500 error; details go to the `logs` table.
+- `app/api/logs/route.ts`: client-side activity logging. It needs a valid session, takes the user id from the session only, accepts only the actions listed in `lib/log-actions.ts`, and rejects bodies over about 10 KB.
 - `components/streaming/`: `ModernBlankInput.tsx` (fill-in-the-blank input), `ChatAccordion.tsx` (per-paragraph doubt chat), `ModernAIOutputDisplay.tsx` (final answer display), `PerformanceSummary.tsx` (progress summary).
 - `components/ui/accordion.tsx`: base accordion (shadcn/ui).
-- `lib/db.ts`: Drizzle/Postgres connection, created on first use. `lib/env.ts`: `requireEnv()`, which throws a clear error for a missing variable. `lib/logger.ts`: writes to the `logs` table. `lib/utils.ts`: class-name helper.
-- `middleware.ts`: redirects `/streaming` to `/auth/login` when the `userId` cookie is missing.
+- `lib/db.ts`: Drizzle/Postgres connection, created on first use. `lib/env.ts`: `requireEnv()`, which throws a clear error for a missing variable. `lib/session.ts`: signed session tokens. `lib/log-actions.ts`: the list of log actions the client may send. `lib/logger.ts`: writes to the `logs` table. `lib/utils.ts`: class-name helper.
+- `middleware.ts`: redirects `/streaming` to `/auth/login` unless the `session` cookie holds a valid, unexpired, correctly signed token.
 - `scripts/seed.ts`, `scripts/reset-db.js`: database helpers. `scripts/trace-spike.ts`: standalone DeepSeek thinking-mode measurement script (not part of the app).
 - `logs_analyze.py`: analysis helper for exported logs.
 
@@ -137,11 +139,15 @@ Also in that file: the final answer streams one character every 15 ms, and the "
 
 ## Authentication and known limitations
 
-Login sets an HTTP-only `userId` cookie (7 days, `sameSite: strict`). The cookie is a plain user id: it is not signed, so it can be forged. Passwords are stored and compared in plain text (`bcryptjs` is installed but not used). There is no `NEXTAUTH_SECRET`; nothing reads one. Do not use real passwords, and do not deploy this as is.
+Login sets an HTTP-only `session` cookie (7 days, `sameSite: strict`, `secure` in production). It holds a signed token (`v1.<payload>.<signature>`, HMAC-SHA256 with `SESSION_SECRET`) containing the user id and an expiry; a missing, tampered, malformed or expired token is rejected by `middleware.ts` and by every API route. Passwords are stored as bcrypt hashes (cost 12), and the login response and timing do not reveal whether an email exists. Login attempts are logged without the email address.
+
+Changing `SESSION_SECRET` signs everyone out. Anyone can still register an account: there is no restriction on who may register.
+
+**Before deploying this version to a database that already has users, run `npx pnpm@8 db:hash-passwords -- --yes` against it.** Until then, users whose password is still plain text cannot log in.
 
 ## Environment variables
 
-`DATABASE_URL` and `DEEPSEEK_API_KEY` are required, and `DEEPSEEK_CHAT_MODEL` is optional (see `.env.example`). The two required ones are read when first needed, not at import time. A missing `DATABASE_URL` raises a clear error on the first database query, and a missing `DEEPSEEK_API_KEY` makes `/api/generate` return a generic 500 and log `ai_not_configured`.
+`DATABASE_URL`, `DEEPSEEK_API_KEY` and `SESSION_SECRET` (at least 32 characters) are required, and `DEEPSEEK_CHAT_MODEL` is optional (see `.env.example`). The required ones are read when first needed, not at import time. A missing `DATABASE_URL` raises a clear error on the first database query, and a missing `DEEPSEEK_API_KEY` makes `/api/generate` return a generic 500 and log `ai_not_configured`. A missing or too short `SESSION_SECRET` makes login (and the `/streaming` page and API routes that check the session) fail with a configuration error.
 
 Optional: `DEEPSEEK_CHAT_MODEL` sets the model used by the doubt-chat (default `deepseek-flash`; thinking is disabled for the tutor chat so the short answer is not used up by reasoning tokens).
 
