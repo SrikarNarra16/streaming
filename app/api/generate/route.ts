@@ -120,22 +120,40 @@ ${context}`;
       ];
     }
 
+    // Model from env (see .env.example). Thinking is disabled so the short tutor answer
+    // is not eaten by hidden reasoning tokens (they count inside max_tokens).
+    const model = process.env.DEEPSEEK_CHAT_MODEL?.trim() || "deepseek-flash";
+
     // Enable streaming from DeepSeek/OpenAI
     const completion = await openai.chat.completions.create({
-      model: "deepseek-chat",
+      model,
       messages,
       temperature: 0.7,
       max_tokens: 500,
       stream: true,
+      stream_options: { include_usage: true },
+      ...({ thinking: { type: "disabled" } } as object),
     });
 
     // Create a ReadableStream to pipe chunks to the client
     const stream = new ReadableStream({
       async start(controller) {
         let fullContent = "";
+        let finishReason: string | null = null;
+        let usage: Record<string, number | undefined> | null = null;
         try {
           for await (const chunk of completion) {
-            const delta = chunk.choices?.[0]?.delta?.content || "";
+            const choice = chunk.choices?.[0];
+            if (choice?.finish_reason) finishReason = choice.finish_reason;
+            if (chunk.usage) {
+              usage = {
+                promptTokens: chunk.usage.prompt_tokens,
+                completionTokens: chunk.usage.completion_tokens,
+                totalTokens: chunk.usage.total_tokens,
+                reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens,
+              };
+            }
+            const delta = choice?.delta?.content || "";
             if (delta) {
               controller.enqueue(delta);
               fullContent += delta;
@@ -163,6 +181,9 @@ ${context}`;
             userQuestion: prompt,
             aiResponse: fullContent,
             responseLength: fullContent.length,
+            model,
+            finishReason,
+            usage,
             conversationLength: conversationHistory?.length || 0,
           },
           userId
