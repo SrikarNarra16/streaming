@@ -28,9 +28,26 @@ import type { TraceProvider } from "./provider";
 
 export type ConsumeStatus = "complete" | "partial" | "failed" | "cancelled" | "truncated";
 
+/** Things that went slightly wrong without changing the status. */
+export const TRACE_WARNINGS = [
+  "error_after_answer",
+  "timeout_after_answer",
+  "stream_ended_without_done",
+  "finished_without_answer",
+  "events_after_done",
+  "ignored_unknown_event",
+  "callback_error",
+] as const;
+export type TraceWarning = (typeof TRACE_WARNINGS)[number];
+
 export interface ConsumeOptions {
-  /** Longest wait between two events (and before the first one); not a limit on the total time. Default 30000. */
+  /** Longest wait between two events, once the first one has arrived. Default 30000. */
   idleTimeoutMs?: number;
+  /** Longest wait before the FIRST event. Default: the same as idleTimeoutMs. */
+  firstEventTimeoutMs?: number;
+  /** Deadline for the whole stream, counted from the start of consumption. Default: none.
+   *  When it passes it is handled like an idle timeout. */
+  maxTotalMs?: number;
   /** After `done`: longest wait for the stream to close cleanly. Default 2000. */
   drainTimeoutMs?: number;
   /** Aborting it ends consumption with status "cancelled". */
@@ -48,9 +65,7 @@ export interface ConsumeResult {
   reasoning: string;
   answer: string;
   error?: { code: TraceErrorCode; message: string };
-  /** Short stable codes: error_after_answer, timeout_after_answer, stream_ended_without_done,
-   *  finished_without_answer, events_after_done, ignored_unknown_event, callback_error. */
-  warnings: string[];
+  warnings: TraceWarning[];
   model?: string;
   servedModel?: string;
   finishReason?: string;
@@ -70,11 +85,12 @@ function countWords(text: string): number {
 
 export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: ConsumeOptions = {}): Promise<ConsumeResult> {
   const idleMs = options.idleTimeoutMs ?? 30000;
+  const firstMs = options.firstEventTimeoutMs ?? idleMs;
   const drainMs = options.drainTimeoutMs ?? 2000;
   const { signal } = options;
 
   const result: ConsumeResult = { status: "failed", reasoning: "", answer: "", warnings: [] };
-  const warn = (code: string) => {
+  const warn = (code: TraceWarning) => {
     if (!result.warnings.includes(code)) result.warnings.push(code);
   };
   const safely = (callback: ((text: string) => void) | undefined, text: string) => {
@@ -86,12 +102,19 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
   };
 
   let answerDeltas = 0;
+  let eventsSeen = 0;
   let doneSeen = false;
   let stoppedEarly = false;
 
   let iterator: AsyncIterator<TraceEvent> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let totalTimer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
+
+  // The total deadline is one timer for the whole stream; without it this promise never settles.
+  const totalPromise = new Promise<Outcome>((resolve) => {
+    if (options.maxTotalMs !== undefined) totalTimer = setTimeout(() => resolve({ kind: "idle" }), options.maxTotalMs);
+  });
 
   const abortedPromise = new Promise<Outcome>((resolve) => {
     if (!signal) return;
@@ -132,13 +155,14 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
         (r) => ({ kind: "next", result: r }) as Outcome,
         () => ({ kind: "threw" }) as Outcome
       );
+      const waitMs = doneSeen ? drainMs : eventsSeen === 0 ? firstMs : idleMs;
       const idleOutcome = new Promise<Outcome>((resolve) => {
-        timer = setTimeout(() => resolve({ kind: "idle" }), doneSeen ? drainMs : idleMs);
+        timer = setTimeout(() => resolve({ kind: "idle" }), waitMs);
       });
 
       let outcome: Outcome;
       try {
-        outcome = await Promise.race([nextOutcome, idleOutcome, abortedPromise]);
+        outcome = await Promise.race([nextOutcome, idleOutcome, totalPromise, abortedPromise]);
       } finally {
         clearTimeout(timer);
         timer = undefined;
@@ -161,6 +185,7 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
       }
 
       const { result: step } = outcome;
+      if (!step.done) eventsSeen++;
       if (step.done) {
         if (doneSeen) {
           result.status = "complete";
@@ -215,6 +240,7 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
   } finally {
     // Always: no timer, no abort listener, no upstream left running.
     clearTimeout(timer);
+    clearTimeout(totalTimer);
     if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     if (stoppedEarly) {
       try {
