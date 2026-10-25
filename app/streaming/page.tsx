@@ -8,6 +8,7 @@ import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
 import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
+import { nextToken, isBlankAnswerCorrect } from "@/lib/content";
 // Change AI Thinks
 // Fix output code markdown
 
@@ -174,37 +175,36 @@ function StreamingPage() {
         }
 
         const handleTick = () => {
+            // What comes next in the content is decided by lib/content.ts
+            const token = nextToken(aiText, textPosition, CHARS_PER_TYPE_INTERVAL);
+
             // Check for end of content
-            if (textPosition >= aiText.length) {
+            if (token.kind === "end") {
                 setIsTyping(false);
                 setIsContentComplete(true);
                 setIsStreamingSessionActive(false);
                 return;
             }
 
-            const remainingText = aiText.slice(textPosition);
-            
             // Check for BLANK
-            const blankMatch = remainingText.match(/^BLANK\(([^)]+)\)/i);
-            if (blankMatch) {
+            if (token.kind === "blank") {
                 setIsTyping(false); // Stop typing
                 setIsWaitingForBlankFill(true);
-                setCurrentBlankAnswer(blankMatch[1]);
-                setTextPosition(textPosition + blankMatch[0].length);
+                setCurrentBlankAnswer(token.answer);
+                setTextPosition(textPosition + token.length);
                 return; // End this tick
             }
 
             // Check for paragraph break - Custom paragraph break - $$
-            if (remainingText.startsWith('$') && remainingText.charAt(1)=='$') {
+            if (token.kind === "paragraphBreak") {
                 setIsTyping(false); // Stop typing
-                setTextPosition(textPosition + 2);
+                setTextPosition(textPosition + token.length);
                 return; // End this tick
             }
 
             // Otherwise, type the next chunk
-            const chunk = remainingText.slice(0, CHARS_PER_TYPE_INTERVAL);
-            setCurrentParagraph(prev => prev + chunk);
-            setTextPosition(textPosition + chunk.length);
+            setCurrentParagraph(prev => prev + token.text);
+            setTextPosition(textPosition + token.length);
         };
 
         // Use a timeout to schedule the next tick. This creates a state-driven loop.
@@ -398,7 +398,7 @@ function StreamingPage() {
 
     const handleUserInputSubmit = () => {
         if (!userInput.trim() || !currentBlankAnswer) return;
-        const isCorrect = userInput.trim().toLowerCase() === currentBlankAnswer.toLowerCase();
+        const isCorrect = isBlankAnswerCorrect(userInput, currentBlankAnswer);
         
         logButtonClick("blank_answer_submit", {
             userAnswer: userInput.trim(),
