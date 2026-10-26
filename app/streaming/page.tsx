@@ -1,7 +1,7 @@
 // app/streaming/page.tsx
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 
 import { PerformanceSummary } from "@/components/streaming/PerformanceSummary";
@@ -9,6 +9,7 @@ import { ChatAccordion } from "@/components/streaming/ChatAccordion";
 import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
 import { nextToken, isBlankAnswerCorrect } from "@/lib/content";
+import { nextNearBottom, scrollBehaviorFor } from "@/lib/scroll";
 // Change AI Thinks
 // Fix output code markdown
 
@@ -134,6 +135,12 @@ function StreamingPage() {
     
     const bottomRef = useRef<HTMLDivElement>(null);
 
+    // Auto-scroll state. These are refs, not state, so scrolling never causes a re-render.
+    const nearBottomRef = useRef(true); // is the user following the bottom of the page?
+    const lastScrollYRef = useRef(0);
+    const scrollFrameRef = useRef<number | null>(null); // pending animation frame, at most one
+    const smoothPendingRef = useRef(false); // a block appeared since the last scroll
+
     // Token for the showAIAnswer loop: incremented to cancel it (on reset, next question and unmount).
     const answerStreamTokenRef = useRef(0);
     useEffect(() => {
@@ -252,11 +259,50 @@ function StreamingPage() {
         }
     }, [currentParagraph]);
     
+    // --- AUTO-SCROLL ---
+    // The scroll container is the window: no wrapper sets overflow or a fixed height.
+    // Follow the text only while the user is near the bottom; scroll at most once per animation frame.
     useEffect(() => {
-      if (bottomRef.current) {
-        bottomRef.current.scrollIntoView({ behavior: "smooth" });
-      }
-    }, [completedContent, displayedCurrentParagraph, isWaitingForBlankFill, isWaitingForFeedback, showAIOutput, activeAccordion]);
+        lastScrollYRef.current = window.scrollY;
+        const onScroll = () => {
+            const y = window.scrollY;
+            nearBottomRef.current = nextNearBottom(nearBottomRef.current, {
+                y,
+                lastY: lastScrollYRef.current,
+                distanceFromBottom: document.documentElement.scrollHeight - (y + window.innerHeight),
+            });
+            lastScrollYRef.current = y;
+        };
+        window.addEventListener("scroll", onScroll, { passive: true });
+        return () => {
+            window.removeEventListener("scroll", onScroll);
+            if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+        };
+    }, []);
+
+    const requestScroll = useCallback((smooth: boolean) => {
+        if (!nearBottomRef.current) return;
+        smoothPendingRef.current = smoothPendingRef.current || smooth; // a pending block scroll stays smooth
+        if (scrollFrameRef.current !== null) return;
+        scrollFrameRef.current = requestAnimationFrame(() => {
+            scrollFrameRef.current = null;
+            const smoothWanted = smoothPendingRef.current;
+            smoothPendingRef.current = false;
+            if (!nearBottomRef.current || !bottomRef.current) return;
+            const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            bottomRef.current.scrollIntoView({ behavior: scrollBehaviorFor(smoothWanted, reducedMotion) });
+        });
+    }, []);
+
+    // Text growing line by line: follow it instantly.
+    useEffect(() => {
+        requestScroll(false);
+    }, [displayedCurrentParagraph, requestScroll]);
+
+    // A whole block appeared or changed (feedback box, blank input, accordion, AI answer panel): smooth.
+    useEffect(() => {
+        requestScroll(true);
+    }, [completedContent, isWaitingForBlankFill, isWaitingForFeedback, showAIOutput, activeAccordion, requestScroll]);
 
     // --- EVENT HANDLERS ---
     const handlePlayPause = () => {
@@ -595,7 +641,7 @@ function StreamingPage() {
                     </button>
                 </div>
 
-                <div className="font-sans text-lg mt-6">
+                <div className="font-sans text-lg mt-6" aria-live="off" aria-busy={isTyping}>
                     {completedContent}
 
                     {displayedCurrentParagraph && ( <ReactMarkdown components={markdownComponents}>{displayedCurrentParagraph}</ReactMarkdown> )}

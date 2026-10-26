@@ -126,3 +126,25 @@ p, span, strong {
     @apply bg-background text-foreground;
   }
 }
+
+/* Reduced motion: no smooth scrolling, CSS transitions, pulse animation or hover scale.
+   The loading spinner (animate-spin) is left as it is. Typing speed is JavaScript and is not changed. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+  .animate-pulse {
+    animation: none !important;
+  }
+  .hover\:scale-105:hover {
+    --tw-scale-x: 100% !important;
+    --tw-scale-y: 100% !important;
+    --tw-scale-z: 100% !important;
+  }
+}
