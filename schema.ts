@@ -3,8 +3,9 @@ import {
   serial, 
   text, 
   varchar, 
-  timestamp, 
-  jsonb 
+  timestamp,
+  jsonb,
+  integer
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -32,4 +33,25 @@ export const logs = pgTable("logs", {
   level: text("level").notNull(),
   timestamp: timestamp("timestamp", { withTimezone: true }).default(sql`now()`),
   // Removed message field since logger doesn't use it
+});
+
+// One row per live thinking-trace request (written once per request, whatever the outcome).
+export const traces = pgTable("traces", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  questionId: integer("question_id").notNull().references(() => questions.id),
+  source: text("source").notNull(), // "reasoning" or "steps": which kind of text became the trace
+  decisionReason: text("decision_reason").notNull(), // why, for example "in_range", "too_long", "setting_steps"
+  model: text("model").notNull(), // the model that was asked
+  servedModel: text("served_model"), // the model the server reported, if any
+  status: text("status").notNull(), // "ready", "failed" or "cancelled"
+  rawReasoning: text("raw_reasoning"), // the reasoning exactly as received (before cleaning)
+  stepsText: text("steps_text"), // the step-by-step answer exactly as received (before cleaning)
+  finalParagraphs: jsonb("final_paragraphs").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  finalWords: integer("final_words").notNull().default(0),
+  usage: jsonb("usage"), // token usage per call: { reasoning?: {...}, steps?: {...} }
+  warnings: jsonb("warnings").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  errorCode: text("error_code"),
+  totalMs: integer("total_ms"),
+  createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });

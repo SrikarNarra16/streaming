@@ -91,6 +91,7 @@ There is no `db:migrate` script. After `db:reset`, run `db:seed` to get the samp
 - **users**: `id` serial PK, `name` text, `email` varchar(255) unique, `password` text, `created_at` timestamp (default now). All NOT NULL.
 - **questions**: `id` serial PK, `question` text, `content` text, `answer` text. All NOT NULL.
 - **logs**: `id` serial PK, `user_id` text (nullable), `action` text, `details` jsonb (default `{}`), `level` text, `timestamp` timestamptz (default now).
+- **traces**: one row per live-trace request (`POST /api/trace`): `user_id` and `question_id` (foreign keys), `source` (`reasoning` or `steps`), `decision_reason`, `model`, `served_model`, `status` (`ready`, `failed` or `cancelled`), `raw_reasoning`, `steps_text`, `final_paragraphs` (jsonb), `final_words`, `usage` (jsonb), `warnings` (jsonb), `error_code`, `total_ms`, `created_at`. Create it with `npx drizzle-kit push`.
 
 ### Question content format
 
@@ -117,6 +118,7 @@ INSERT INTO questions (question, content, answer) VALUES (
 - `app/api/auth/{login,logout,register,me}/route.ts`: authentication endpoints.
 - `app/api/questions/route.ts`: returns all questions (401 when not logged in).
 - `app/api/generate/route.ts`: streams doubt-chat answers from DeepSeek (the model comes from `DEEPSEEK_CHAT_MODEL`, default `deepseek-flash`, with thinking disabled). Failures return a generic JSON 500 error; details go to the `logs` table.
+- `app/api/trace/route.ts`: `POST { questionId }` streams a live thinking trace as NDJSON (`trace_ready`, then `done`, or one generic error event). The prompt always comes from the database, a session is required, and each request is limited per user. The logic is in `lib/trace/`.
 - `app/api/logs/route.ts`: client-side activity logging. It needs a valid session, takes the user id from the session only, accepts only the actions listed in `lib/log-actions.ts`, and rejects bodies over about 10 KB.
 - `components/streaming/`: `ModernBlankInput.tsx` (fill-in-the-blank input), `ChatAccordion.tsx` (per-paragraph doubt chat), `ModernAIOutputDisplay.tsx` (final answer display), `PerformanceSummary.tsx` (progress summary).
 - `components/ui/accordion.tsx`: base accordion (shadcn/ui).
@@ -157,7 +159,13 @@ Optional, for the live thinking-trace provider in `lib/trace/` (not wired into t
 - `DEEPSEEK_TRACE_MAX_TOKENS`: the `max_tokens` limit for one trace request (default `8000`). Reasoning tokens count inside `max_tokens`, so keep it generous: a trace that hits the limit ends with finish reason `length`. Values that are not whole numbers between 256 and 100000 are ignored and the default is used.
 - `DEEPSEEK_TRACE_EFFORT`: the reasoning effort (`low`, `high` or `max`), sent as the request parameter `reasoning_effort`. It is **unset by default**: nothing is sent and DeepSeek's own default applies. Any other value is ignored, as if it were unset.
 
-Known issue: `next build` currently fails (lint errors, and `useSearchParams()` in `app/auth/login/page.tsx` is not wrapped in a Suspense boundary), so only `next dev` is verified.
+Optional, for the live trace route `POST /api/trace` (all have defaults and invalid values fall back to them; see `.env.example`):
+
+- `TRACE_SOURCE` (`auto`): `reasoning` always uses the model's reasoning, `steps` always uses the step-by-step text (the reasoning call is skipped), `auto` uses the reasoning when its cleaned word count is within the range and the step-by-step text otherwise. The reasoning call never sends an effort.
+- `TRACE_MIN_WORDS` (`150`) and `TRACE_MAX_WORDS` (`500`): the word range for `auto`. The reasoning call is stopped as soon as the cleaned reasoning passes the maximum.
+- `TRACE_PROVIDER` (`deepseek`): `mock` replays an invented sample and needs no key.
+- `TRACE_MAX_PER_HOUR` (`20`): traces per user per rolling hour. One trace may run per user at a time. Both limits are counted in memory, so they are per server process.
+- `TRACE_FIRST_EVENT_TIMEOUT_MS` (`30000`), `TRACE_IDLE_TIMEOUT_MS` (`30000`) and `TRACE_TOTAL_TIMEOUT_MS` (`180000`): the limits for each provider call.
 
 ## Known audit findings
 

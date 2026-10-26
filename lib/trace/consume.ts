@@ -226,8 +226,7 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
         answerDeltas++;
         result.answer += event.text;
         safely(options.onAnswer, event.text);
-      } else {
-        // done
+      } else if (event.type === "done") {
         doneSeen = true;
         result.model = event.model;
         if (event.servedModel !== undefined) result.servedModel = event.servedModel;
@@ -235,6 +234,9 @@ export async function consumeTrace(events: AsyncIterable<TraceEvent>, options: C
         if (event.usage !== undefined) result.usage = event.usage;
         result.status = "complete";
         if (answerDeltas === 0) warn("finished_without_answer");
+      } else {
+        // trace_ready is what the server sends to the browser; a provider never produces it
+        warn("ignored_unknown_event");
       }
     }
   } finally {

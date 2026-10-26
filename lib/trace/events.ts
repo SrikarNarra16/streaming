@@ -26,11 +26,17 @@ export interface TraceUsage {
   reasoningTokens?: number;
 }
 
+export const TRACE_SOURCES = ["reasoning", "steps"] as const;
+export type TraceSource = (typeof TRACE_SOURCES)[number];
+
 export type TraceEvent =
   | { type: "reasoning_delta"; text: string }
   | { type: "answer_delta"; text: string }
   | { type: "done"; model: string; servedModel?: string; finishReason?: string; usage?: TraceUsage }
-  | { type: "error"; code: TraceErrorCode; message: string };
+  | { type: "error"; code: TraceErrorCode; message: string }
+  // What the server sends to the learner's browser instead of the raw deltas: the finished, cleaned and
+  // segmented trace, and which kind of text it came from.
+  | { type: "trace_ready"; source: TraceSource; paragraphs: string[]; words: number; model: string };
 
 const isString = (v: unknown): v is string => typeof v === "string";
 const isOptionalString = (v: unknown) => v === undefined || isString(v);
@@ -59,6 +65,16 @@ export function isTraceEvent(x: unknown): x is TraceEvent {
       return isString(e.model) && isOptionalString(e.servedModel) && isOptionalString(e.finishReason) && (e.usage === undefined || isUsage(e.usage));
     case "error":
       return (TRACE_ERROR_CODES as readonly unknown[]).includes(e.code) && isString(e.message);
+    case "trace_ready":
+      return (
+        (TRACE_SOURCES as readonly unknown[]).includes(e.source) &&
+        Array.isArray(e.paragraphs) &&
+        e.paragraphs.every(isString) &&
+        typeof e.words === "number" &&
+        Number.isInteger(e.words) &&
+        e.words >= 0 &&
+        isString(e.model)
+      );
     default:
       return false;
   }
