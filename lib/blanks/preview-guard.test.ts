@@ -19,6 +19,7 @@ describe("scripts/blanks-preview.ts", () => {
     const imports = [...code.matchAll(/^import .* from "([^"]+)"/gm)].map((m) => m[1]).sort();
     expect(imports).toEqual([
       "../lib/blanks/apply",
+      "../lib/blanks/fixtures",
       "../lib/blanks/propose",
       "../lib/clean-trace",
       "../lib/segment",

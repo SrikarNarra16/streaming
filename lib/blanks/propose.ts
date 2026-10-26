@@ -6,6 +6,7 @@
 // A candidate is a piece of one paragraph: paragraph.slice(start, end) === answer. Candidates come from five
 // small rules (see the comments at each rule), must pass validateBlank, are ranked by KIND_PRIORITY, and ties
 // are broken by a hash of the seed so the same input and seed always give the same result.
+import { findGiveAway } from "./giveaway";
 import { answerWords, validateBlank } from "./validate";
 
 export type BlankKind = "number" | "condition" | "update" | "complexity" | "term";
@@ -17,6 +18,8 @@ export interface BlankCandidate {
   kind: BlankKind;
   /** A short fixed explanation of why this piece is a candidate. */
   reason: string;
+  /** The answer has an operator or comparison character, so grading (exact) may fail on different spacing. */
+  spacingSensitive: boolean;
 }
 
 export interface ProposeOptions {
@@ -28,6 +31,24 @@ export interface ProposeOptions {
   skipFirst?: boolean;
   /** Breaks ties between equally ranked candidates deterministically. Default 0. */
   seed?: number | string;
+  /** Allow the same answer text (case-insensitive) in more than one paragraph of the trace. Default false. */
+  allowRepeatAcrossParagraphs?: boolean;
+  /** Allow "term" candidates that are in GENERIC_TERMS. Default false. */
+  allowGenericTerms?: boolean;
+  /** Allow candidates whose answer has an operator character (see SPACING_SENSITIVE). Default false. */
+  includeSpacingSensitive?: boolean;
+}
+
+/** What was left out on purpose, counted over candidates that were otherwise acceptable. */
+export interface ProposeStats {
+  heldBackSpacingSensitive: number;
+  heldBackGenericTerms: number;
+  heldBackGiveAway: number;
+}
+
+export interface ProposeResult {
+  candidates: BlankCandidate[][];
+  stats: ProposeStats;
 }
 
 /** Best first. DRAFT: conditions and updates test the algorithm, numbers and terms are easier. */
@@ -45,6 +66,29 @@ export const TERM_MIN_CHARS = 4;
  * DRAFT.
  */
 export const TERM_NEEDS_EARLIER_MENTION = true;
+/**
+ * Answers with an operator or comparison character (= < > + - * / %) are held back by default, because grading is
+ * an exact match and a learner can type "low=mid+1" or "low = mid + 1". Set includeSpacingSensitive to get them.
+ * DRAFT: turn this off if grading learns to ignore spacing.
+ */
+export const HOLD_BACK_SPACING_SENSITIVE = true;
+export const SPACING_SENSITIVE = /[=<>+\-*/%]/;
+export const isSpacingSensitive = (answer: string) => SPACING_SENSITIVE.test(answer);
+
+/**
+ * Words that fit almost any trace, so blanking them tests little ("list", "value", ...). A "term" candidate in this
+ * set is excluded unless allowGenericTerms is set. DRAFT: extend when tuning.
+ */
+export const GENERIC_TERMS: ReadonlySet<string> = new Set([
+  "list", "lists", "value", "values", "sorted", "sort", "sorting", "number", "numbers", "array", "arrays",
+  "element", "elements", "item", "items", "result", "results", "step", "steps", "example", "examples", "answer",
+  "answers", "function", "functions", "input", "output", "index", "indices", "variable", "variables", "code",
+  "data", "cell", "cells", "between", "current", "previous", "compare", "compared", "comparing", "difference",
+  "return", "returns", "returned", "start", "starts", "whole", "small", "large", "larger", "smaller", "case", "cases",
+  "close", "closest", "largest", "smallest", "biggest", "greater", "least", "first", "check", "checks",
+]);
+/** A capitalised word that starts a sentence ("Check the edge cases.") is more likely a verb than a term. DRAFT. */
+export const TERM_SKIP_SENTENCE_START = true;
 
 /** Frequent words that are not worth a blank even when repeated. DRAFT: extend when tuning. */
 export const TERM_STOPWORDS: ReadonlySet<string> = new Set([
@@ -145,12 +189,18 @@ function complexityCandidates(paragraph: string): Raw[] {
 // TERM_MIN_MENTIONS times in the whole trace, and that already appeared in an earlier paragraph (see
 // TERM_NEEDS_EARLIER_MENTION). (validateBlank then rejects it if it appears twice in its own paragraph, so it
 // is mentioned once here and elsewhere in the trace.)
+function startsSentenceCapitalised(paragraph: string, at: number, word: string): boolean {
+  if (!/^[A-Z][a-z]+$/.test(word)) return false; // identifiers like largest_gap or camelCase are not skipped
+  return at === 0 || /[.!?:]\s+$/.test(paragraph.slice(0, at));
+}
+
 function termCandidates(paragraph: string, index: number, mentions: Map<string, number>, firstSeen: Map<string, number>): Raw[] {
   const found: Raw[] = [];
   for (const m of paragraph.matchAll(new RegExp(`${NOT_AFTER_WORD}[A-Za-z_][A-Za-z0-9_]{${TERM_MIN_CHARS - 1},}(?![A-Za-z0-9_])`, "g"))) {
     const word = m[0];
     const lower = word.toLowerCase();
     if (TERM_STOPWORDS.has(lower)) continue;
+    if (TERM_SKIP_SENTENCE_START && startsSentenceCapitalised(paragraph, m.index!, word)) continue;
     if ((mentions.get(lower) ?? 0) < TERM_MIN_MENTIONS) continue;
     if (TERM_NEEDS_EARLIER_MENTION && (firstSeen.get(lower) ?? index) >= index) continue; // first used here: nobody can recall it
     found.push({ answer: word, start: m.index!, end: m.index! + word.length, kind: "term" });
@@ -182,18 +232,34 @@ function tieBreak(seed: number | string, paragraphIndex: number, c: Raw): number
   return hash;
 }
 
-export function proposeBlanks(paragraphs: string[], options: ProposeOptions = {}): BlankCandidate[][] {
+const emptyStats = (): ProposeStats => ({ heldBackSpacingSensitive: 0, heldBackGenericTerms: 0, heldBackGiveAway: 0 });
+
+interface Pooled {
+  c: Raw & { spacingSensitive: boolean };
+  index: number;
+  priority: number;
+  mentions: number;
+  tie: number;
+}
+
+export function proposeBlanksWithStats(paragraphs: string[], options: ProposeOptions = {}): ProposeResult {
   const max = Math.max(0, Math.floor(options.maxBlanksPerParagraph ?? DEFAULT_MAX_BLANKS_PER_PARAGRAPH));
   const includeCode = options.includeCode ?? false;
   const skipFirst = options.skipFirst ?? true;
   const seed = options.seed ?? 0;
+  const allowRepeat = options.allowRepeatAcrossParagraphs ?? false;
+  const allowGeneric = options.allowGenericTerms ?? false;
+  const includeSensitive = options.includeSpacingSensitive ?? !HOLD_BACK_SPACING_SENSITIVE;
   const { counts: mentions, firstSeen } = countMentions(paragraphs);
+  const stats = emptyStats();
 
-  return paragraphs.map((paragraph, index) => {
-    if (max === 0) return [];
-    if (skipFirst && index === 0) return [];
-    if (countWords(paragraph) < MIN_PARAGRAPH_WORDS) return [];
-    if (!includeCode && isCodeParagraph(paragraph)) return [];
+  // 1. Every acceptable candidate of every paragraph.
+  const pool: Pooled[] = [];
+  paragraphs.forEach((paragraph, index) => {
+    if (max === 0) return;
+    if (skipFirst && index === 0) return;
+    if (countWords(paragraph) < MIN_PARAGRAPH_WORDS) return;
+    if (!includeCode && isCodeParagraph(paragraph)) return;
 
     const raw = [
       ...conditionCandidates(paragraph),
@@ -202,25 +268,54 @@ export function proposeBlanks(paragraphs: string[], options: ProposeOptions = {}
       ...numberCandidates(paragraph),
       ...termCandidates(paragraph, index, mentions, firstSeen),
     ];
-    const valid = raw.filter((c) => validateBlank(c.answer, { paragraph }).ok);
-
-    // Best first: kind priority, then (for terms) the more often mentioned, then the seeded tie-break.
-    const ranked = valid
-      .map((c) => ({ c, priority: KIND_PRIORITY.indexOf(c.kind), mentions: c.kind === "term" ? mentions.get(c.answer.toLowerCase()) ?? 0 : 0, tie: tieBreak(seed, index, c) }))
-      .sort((a, b) => a.priority - b.priority || b.mentions - a.mentions || a.tie - b.tie || a.c.start - b.c.start)
-      .map((x) => x.c);
-
-    // Keep the best ones that do not overlap each other (or repeat the same text).
-    const chosen: BlankCandidate[] = [];
-    for (const c of ranked) {
-      if (chosen.length >= max) break;
-      const overlaps = chosen.some((k) => c.start < k.end && k.start < c.end);
-      const sameText = chosen.some((k) => k.answer.toLowerCase() === c.answer.toLowerCase());
-      if (overlaps || sameText) continue;
-      chosen.push({ ...c, reason: REASONS[c.kind] });
+    for (const c of raw) {
+      if (!validateBlank(c.answer, { paragraph }).ok) continue;
+      if (findGiveAway(paragraph, c.start, c.end) !== null) {
+        stats.heldBackGiveAway++;
+        continue;
+      }
+      if (c.kind === "term" && !allowGeneric && GENERIC_TERMS.has(c.answer.toLowerCase())) {
+        stats.heldBackGenericTerms++;
+        continue;
+      }
+      const spacingSensitive = c.kind === "condition" || c.kind === "update" || isSpacingSensitive(c.answer);
+      if (spacingSensitive && !includeSensitive) {
+        stats.heldBackSpacingSensitive++;
+        continue;
+      }
+      pool.push({
+        c: { ...c, spacingSensitive },
+        index,
+        priority: KIND_PRIORITY.indexOf(c.kind),
+        mentions: c.kind === "term" ? mentions.get(c.answer.toLowerCase()) ?? 0 : 0,
+        tie: tieBreak(seed, index, c),
+      });
     }
-    return chosen;
   });
+
+  // 2. Best first across the whole trace: kind priority, then (for terms) the more often mentioned, then the
+  // seeded tie-break. Taking candidates in this order means that when two paragraphs want the same answer text,
+  // the one that ranks higher gets it and the other falls to its next candidate.
+  pool.sort((a, b) => a.priority - b.priority || b.mentions - a.mentions || a.tie - b.tie || a.index - b.index || a.c.start - b.c.start);
+
+  const candidates: BlankCandidate[][] = paragraphs.map(() => []);
+  const usedInTrace = new Set<string>();
+  for (const { c, index } of pool) {
+    const list = candidates[index];
+    if (list.length >= max) continue;
+    const text = c.answer.toLowerCase();
+    const overlaps = list.some((k) => c.start < k.end && k.start < c.end);
+    const sameText = list.some((k) => k.answer.toLowerCase() === text);
+    if (overlaps || sameText) continue;
+    if (!allowRepeat && usedInTrace.has(text)) continue;
+    list.push({ ...c, reason: REASONS[c.kind] });
+    usedInTrace.add(text);
+  }
+  return { candidates, stats };
+}
+
+export function proposeBlanks(paragraphs: string[], options: ProposeOptions = {}): BlankCandidate[][] {
+  return proposeBlanksWithStats(paragraphs, options).candidates;
 }
 
 /** How many words an answer has in the sense the validator uses (exported for the preview). */

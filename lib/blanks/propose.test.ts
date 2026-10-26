@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { segmentTrace } from "../segment";
 import { SAMPLE_REASONING, SAMPLE_STEPS } from "../trace/sample-trace";
-import { isCodeParagraph, KIND_PRIORITY, MIN_PARAGRAPH_WORDS, proposeBlanks, type BlankCandidate, type ProposeOptions } from "./propose";
+import { BINARY_SEARCH_TRACE, SPIRAL_MATRIX_TRACE } from "./fixtures";
+import { GENERIC_TERMS, HOLD_BACK_SPACING_SENSITIVE, isCodeParagraph, isSpacingSensitive, KIND_PRIORITY, MIN_PARAGRAPH_WORDS, proposeBlanks, proposeBlanksWithStats, type BlankCandidate, type ProposeOptions } from "./propose";
 import { validateBlank } from "./validate";
 
 // A first paragraph (skipped by default) that is long enough, and filler so a paragraph reaches 15 words.
 const INTRO = "We need a function that searches a sorted list for a target value and tells us where the target is located inside the list.";
 const FILL = "and nothing else in this sentence matters for the example we are discussing here today";
 
-// Candidates for the SECOND paragraph, with the first one in front of it.
-const second = (paragraph: string, options: ProposeOptions = {}) => proposeBlanks([INTRO, paragraph], options)[1];
+// Candidates for the SECOND paragraph, with the first one in front of it. Spacing-sensitive kinds (conditions,
+// updates) are held back by default, so most tests switch them on; the default has its own tests below.
+const second = (paragraph: string, options: ProposeOptions = {}) => proposeBlanks([INTRO, paragraph], { includeSpacingSensitive: true, ...options })[1];
 const answers = (list: BlankCandidate[]) => list.map((c) => c.answer);
 const wordCount = (text: string) => text.trim().split(/\s+/).length;
 
@@ -30,6 +32,9 @@ describe("candidate kinds", () => {
   it("does not take a number that belongs to more arithmetic, or one that is not a stated value", () => {
     const p = `We set x = 3 + 1 and then we look at the list of 7 values for a while ${FILL}.`;
     expect(second(p, { maxBlanksPerParagraph: 5 }).filter((c) => c.kind === "number")).toEqual([]);
+    // no update candidate can hide the number here (the parentheses rule the update out)
+    const q = `We then compute x = 3 * (a + b) at every step of the loop over the data ${FILL}.`;
+    expect(second(q, { maxBlanksPerParagraph: 5 })).toEqual([]);
   });
 
   it('"condition": low <= high', () => {
@@ -133,10 +138,11 @@ describe("which paragraphs get blanks", () => {
   const P = `The loop keeps going while low <= high, because the target could still be somewhere between the two ends of the list.`;
 
   it("skips the first paragraph by default, and only then", () => {
-    const [first, secondList] = proposeBlanks([P, P]);
+    const on = { includeSpacingSensitive: true };
+    const [first, secondList] = proposeBlanks([P, P], on);
     expect(first).toEqual([]);
     expect(secondList.length).toBe(1);
-    expect(proposeBlanks([P, P], { skipFirst: false })[0].length).toBe(1);
+    expect(proposeBlanks([P, P], { ...on, skipFirst: false, allowRepeatAcrossParagraphs: true })[0].length).toBe(1);
   });
 
   it("skips a paragraph under 15 words, and accepts one of exactly 15", () => {
@@ -222,6 +228,177 @@ describe("what an answer may contain", () => {
         expect(c.answer).not.toContain(")");
         expect(c.answer).toBe(c.answer.trim());
         expect(c.answer).not.toMatch(/[\r\n]/);
+      }
+    }
+  });
+});
+
+describe("trace-wide uniqueness", () => {
+  const A = `The loop keeps going while low <= high, because the target could still be somewhere between the two ends of the range.`;
+  const B = `Later on we again test low <= high, because the target could still be somewhere between the two ends of the range.`;
+  const on = { includeSpacingSensitive: true };
+
+  it("never chooses the same answer text (any case) in two paragraphs", () => {
+    const lists = proposeBlanks([INTRO, A, B], { ...on, maxBlanksPerParagraph: 3 });
+    const texts = lists.flat().map((c) => c.answer.toLowerCase());
+    expect(new Set(texts).size).toBe(texts.length);
+    expect(texts.filter((t) => t === "low <= high")).toHaveLength(1);
+  });
+
+  it("the other paragraph falls to its next candidate", () => {
+    const lists = proposeBlanks([INTRO, A, B], { ...on, maxBlanksPerParagraph: 1 });
+    expect(lists[1].length + lists[2].length).toBe(2);
+    expect(lists.flat().map((c) => c.answer).sort()).not.toEqual(["low <= high", "low <= high"]);
+    expect(lists.flat().filter((c) => c.answer === "low <= high")).toHaveLength(1);
+  });
+
+  it("allowRepeatAcrossParagraphs lifts the rule", () => {
+    const lists = proposeBlanks([INTRO, A, B], { ...on, allowRepeatAcrossParagraphs: true });
+    expect(lists[1][0].answer).toBe("low <= high");
+    expect(lists[2][0].answer).toBe("low <= high");
+  });
+
+  it("is deterministic: the same seed gives the same winner", () => {
+    expect(proposeBlanks([INTRO, A, B], { ...on, seed: 5 })).toEqual(proposeBlanks([INTRO, A, B], { ...on, seed: 5 }));
+  });
+});
+
+describe("generic terms", () => {
+  const TRACE = [
+    INTRO,
+    "We keep going through the sorted list and the values in it, and the trace talks about gaps between neighbours all the time.",
+    "Again the sorted list and the values in it matter here, and the gaps between neighbours are what the answer is built from.",
+  ];
+
+  it("keeps the documented generic words", () => {
+    for (const w of ["list", "value", "values", "sorted", "number", "numbers", "array", "element", "elements", "item", "items", "result", "step", "steps", "example", "answer", "function", "input", "output"]) {
+      expect(GENERIC_TERMS.has(w)).toBe(true);
+    }
+  });
+
+  it("excludes them by default and counts them as held back", () => {
+    const { candidates, stats } = proposeBlanksWithStats(TRACE, { maxBlanksPerParagraph: 9 });
+    const picked = candidates.flat().map((c) => c.answer.toLowerCase());
+    for (const w of ["list", "values", "sorted"]) expect(picked).not.toContain(w);
+    expect(picked).toContain("gaps");
+    expect(stats.heldBackGenericTerms).toBeGreaterThan(0);
+  });
+
+  it("allowGenericTerms brings them back", () => {
+    const picked = proposeBlanks(TRACE, { maxBlanksPerParagraph: 9, allowGenericTerms: true }).flat().map((c) => c.answer.toLowerCase());
+    expect(picked).toEqual(expect.arrayContaining(["sorted"]));
+  });
+
+  it("a capitalised sentence-start word is not taken as a term, an identifier is", () => {
+    const trace = [INTRO, "First we sketch things. Gaps are what we need to find, and the gaps between neighbours are the whole point of it.", "Gaps matter so we store gaps_seen for each step and we also report gaps_seen at the end of the whole run."];
+    const picked = proposeBlanks(trace, { maxBlanksPerParagraph: 9 }).flat().map((c) => c.answer);
+    expect(picked).not.toContain("Gaps");
+  });
+});
+
+describe("spacing-sensitive answers", () => {
+  const P = `The loop keeps going while low <= high, and when it is too small we set low = mid + 1 and the cost is O(log n) in total here.`;
+
+  it("is on by default as a named constant", () => {
+    expect(HOLD_BACK_SPACING_SENSITIVE).toBe(true);
+  });
+
+  it("knows which answers are sensitive", () => {
+    for (const a of ["low <= high", "low=mid+1", "m*n", "n + m", "a/b", "x%2", "-1", "a<b", "a>b", "a==b"]) expect(isSpacingSensitive(a)).toBe(true);
+    for (const a of ["log n", "n log n", "0", "mid", "largest_gap", "arr[mid]"]) expect(isSpacingSensitive(a)).toBe(false);
+  });
+
+  it("holds conditions and updates back by default, counts them, and gives only safe answers", () => {
+    const { candidates, stats } = proposeBlanksWithStats([INTRO, P], { maxBlanksPerParagraph: 9 });
+    expect(candidates[1].map((c) => c.kind)).not.toContain("condition");
+    expect(candidates[1].map((c) => c.kind)).not.toContain("update");
+    expect(candidates[1].map((c) => c.answer)).toContain("log n");
+    expect(stats.heldBackSpacingSensitive).toBe(2);
+    for (const c of candidates.flat()) {
+      expect(c.spacingSensitive).toBe(false);
+      expect(c.answer).not.toMatch(/[=<>+\-*/%]/);
+    }
+  });
+
+  it("includeSpacingSensitive returns them, marked spacingSensitive: true", () => {
+    const { candidates, stats } = proposeBlanksWithStats([INTRO, P], { maxBlanksPerParagraph: 9, includeSpacingSensitive: true });
+    const kinds = candidates[1].map((c) => c.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["condition", "update", "complexity"]));
+    for (const c of candidates[1].filter((x) => x.kind === "condition" || x.kind === "update")) expect(c.spacingSensitive).toBe(true);
+    expect(candidates[1].find((c) => c.kind === "complexity")?.spacingSensitive).toBe(false);
+    expect(stats.heldBackSpacingSensitive).toBe(0);
+  });
+
+  it("an answer with an operator is held back even when it is not a condition or update (m*n, -1)", () => {
+    const text = `Every cell is visited exactly once, so the running time is O(m*n) where m is the number of rows and n the number of columns.`;
+    expect(second(text, { includeSpacingSensitive: false }).map((c) => c.answer)).not.toContain("m*n");
+    expect(second(text).map((c) => c.answer)).toContain("m*n");
+  });
+});
+
+describe("give-away rule inside the proposer", () => {
+  // "partition" is used before and again here, but the two words before it are "partitioned and": a give-away.
+  const TRACE = [
+    "We split the work with partition here and the plan is simple and short enough to read quickly at all.",
+    "Here we partitioned and partition the data again and again until every piece is small enough to handle directly without more work.",
+  ];
+
+  it("does not blank a word whose stem is in the two words before it, and counts it as held back", () => {
+    const { candidates, stats } = proposeBlanksWithStats(TRACE, { skipFirst: false, maxBlanksPerParagraph: 9 });
+    expect(candidates.flat().map((c) => c.answer)).not.toContain("partition");
+    expect(stats.heldBackGiveAway).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the same word is fine when nothing around it gives it away", () => {
+    const fine = [TRACE[0], "Here we split the data and then partition it again and again until every piece is small enough to handle directly."];
+    expect(proposeBlanks(fine, { skipFirst: false, maxBlanksPerParagraph: 9 }).flat().map((c) => c.answer)).toContain("partition");
+  });
+});
+
+describe("hand-written fixtures", () => {
+  const words = (t: string) => t.trim().split(/\s+/).length;
+  const paragraphsOf = (t: string) => segmentTrace(t);
+  const answersOf = (t: string, o: ProposeOptions = {}) => proposeBlanks(paragraphsOf(t), { maxBlanksPerParagraph: 9, ...o }).flat();
+
+  it("are realistic in size and contain the pieces the rules look for", () => {
+    expect(words(BINARY_SEARCH_TRACE)).toBeGreaterThan(220);
+    expect(words(BINARY_SEARCH_TRACE)).toBeLessThan(330);
+    for (const piece of ["low", "high", "mid", "arr[mid] < target", "low = mid + 1", "O(log n)"]) expect(BINARY_SEARCH_TRACE).toContain(piece);
+    for (const piece of ["top <= bottom", "left <= right", "top += 1", "right -= 1", "O(m*n)"]) expect(SPIRAL_MATRIX_TRACE).toContain(piece);
+  });
+
+  it("binary search with includeSpacingSensitive false: nothing with an operator, but the complexity and a number", () => {
+    const list = answersOf(BINARY_SEARCH_TRACE);
+    expect(list.length).toBeGreaterThan(0);
+    for (const c of list) expect(c.answer).not.toMatch(/[=<>+\-*/%]/);
+    expect(list.map((c) => c.answer)).toEqual(expect.arrayContaining(["log n"]));
+  });
+
+  it("binary search with includeSpacingSensitive true: conditions and updates appear, each answer once", () => {
+    const list = answersOf(BINARY_SEARCH_TRACE, { includeSpacingSensitive: true });
+    const kinds = list.map((c) => c.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["condition", "update"]));
+    expect(list.map((c) => c.answer)).toEqual(expect.arrayContaining(["arr[mid] < target"]));
+    const texts = list.map((c) => c.answer.toLowerCase());
+    expect(new Set(texts).size).toBe(texts.length);
+    expect(answersOf(BINARY_SEARCH_TRACE, { includeSpacingSensitive: true, allowRepeatAcrossParagraphs: true }).length).toBeGreaterThanOrEqual(list.length);
+  });
+
+  it("spiral matrix: m*n is held back by default and offered with includeSpacingSensitive", () => {
+    expect(answersOf(SPIRAL_MATRIX_TRACE).map((c) => c.answer)).not.toContain("m*n");
+    const all = answersOf(SPIRAL_MATRIX_TRACE, { includeSpacingSensitive: true });
+    expect(all.map((c) => c.answer)).toEqual(expect.arrayContaining(["m*n", "top <= bottom"]));
+    expect(all.map((c) => c.answer.toLowerCase())).toContain("right -= 1");
+  });
+
+  it("never places a blank in the first paragraph, and applies and round trips", async () => {
+    const { applyBlanks } = await import("./apply");
+    for (const trace of [BINARY_SEARCH_TRACE, SPIRAL_MATRIX_TRACE]) {
+      const paragraphs = paragraphsOf(trace);
+      for (const includeSpacingSensitive of [false, true]) {
+        const best = proposeBlanks(paragraphs, { includeSpacingSensitive });
+        expect(best[0]).toEqual([]);
+        expect(() => applyBlanks(paragraphs, best)).not.toThrow();
       }
     }
   });
