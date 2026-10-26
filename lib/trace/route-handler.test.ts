@@ -237,6 +237,55 @@ describe("a client that goes away", () => {
     expect(deps.limiter.tryStart(7).ok).toBe(true);
   });
 
+  it("saves the row as ready when the reader stops right after trace_ready, before done (as the browser client does)", async () => {
+    const { deps, rows, store } = setup();
+    const res = await handleTraceRequest(post({ questionId: 1 }), deps);
+
+    // read only as far as the trace_ready line, then stop reading
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes('"type":"trace_ready"')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    expect(text).toContain('"type":"trace_ready"');
+    await reader.cancel();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(store.saveTrace).toHaveBeenCalledTimes(1);
+    expect(rows[0]).toMatchObject({ status: "ready", errorCode: null, source: "reasoning", userId: 7, questionId: 1 });
+    expect(rows[0].finalParagraphs.length).toBeGreaterThan(0);
+    expect(rows[0].finalWords).toBe(300);
+    expect(deps.limiter.tryStart(7).ok).toBe(true); // and the slot was released
+  });
+
+  it("still says ready when the reader stops after trace_ready while the save is slow", async () => {
+    const rows: TraceRow[] = [];
+    const slowStore: TraceStore = {
+      saveTrace: vi.fn(async (row: TraceRow) => {
+        await new Promise((resolve) => setTimeout(resolve, 500)); // the reader leaves while this is running
+        rows.push(row);
+      }),
+    };
+    const { deps } = setup({ store: slowStore });
+    const res = await handleTraceRequest(post({ questionId: 1 }), deps);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes('"type":"trace_ready"')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    await reader.cancel();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(slowStore.saveTrace).toHaveBeenCalledTimes(1);
+    expect(rows[0].status).toBe("ready");
+  });
+
   it("is handled when the request was already aborted", async () => {
     const { deps, store } = setup();
     const controller = new AbortController();

@@ -441,6 +441,24 @@ describe("the store is called exactly once", () => {
     expect(rows[0].status).toBe("ready");
   });
 
+  it("when the signal aborts right after trace_ready (the browser stopped reading): the row is ready, not cancelled", async () => {
+    const controller = new AbortController();
+    const { store, rows } = fakeStore();
+    const gen = runTraceForUser(
+      input({ reasoningProvider: spy({ reasoning: prose(300, "r") }).provider, stepsProvider: spy({}).provider, store, signal: controller.signal })
+    );
+    const first = await gen.next();
+    expect(first.value).toMatchObject({ type: "trace_ready" });
+    controller.abort(); // what the route's cancel() does when the client stops reading
+    const rest: TraceEvent[] = [];
+    for await (const event of gen) rest.push(event);
+
+    expect(types(rest)).toEqual(["done"]);
+    expect(store.saveTrace).toHaveBeenCalledTimes(1);
+    expect(rows[0]).toMatchObject({ status: "ready", errorCode: null });
+    expect(rows[0].finalParagraphs.length).toBeGreaterThan(0);
+  });
+
   it("when a provider throws as soon as it is called (and the steps text is empty too)", async () => {
     const exploding: TraceProvider = {
       stream() {
