@@ -48,10 +48,7 @@ Baseline: `e60b0c7` (the original upload). Built from `git log` and the diffs of
 - The `$$` / `BLANK(...)` parsing and the answer check moved to `lib/content.ts`, with tests that pin the current behaviour, including its quirks.
 - Affects study data: **no**, intended to be identical. It was verified by tests and a build, not in a browser.
 
-### Committed, no effect on participants or logged data
-`0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (not connected to the app).
-
-## b73e8d1 (2026-10-26): smarter auto-scroll, reduced motion, typing aria attributes
+### b73e8d1 (2026-10-26): smarter auto-scroll, reduced motion, typing aria attributes
 
 Changes made in the typing and scrolling task.
 - **Auto-scroll** (`app/streaming/page.tsx`, `lib/scroll.ts`): the page follows the text only while the reader is within 120 px of the bottom, at most once per animation frame, instantly while text grows and smoothly when a whole block appears. It never scrolls a reader who scrolled up. With reduced motion it is always instant. Before, it called a smooth scroll on every typed character.
@@ -60,7 +57,7 @@ Changes made in the typing and scrolling task.
 - **Reduced motion** (`app/globals.css`): with the operating-system setting on, CSS transitions, the pulse animation, the hover scale and smooth scrolling are off. The spinner and all JavaScript timing are unchanged. Affects study data: **no**.
 - **Accessibility** (`app/streaming/page.tsx`): the text container has `aria-live="off"` and `aria-busy` while typing. Affects study data: **no**.
 
-## 57c9de4 (2026-10-27): live trace on the learner page, behind a flag
+### 57c9de4 (2026-10-27): live trace on the learner page, behind a flag
 
 - **Flag:** `NEXT_PUBLIC_LIVE_TRACE`. It is on only when it is exactly `true`. It is **off by default** (unset, empty or any other value). It is read when the app is built or started, so changing it needs a restart.
 - **Flag off:** the page uses the stored question content exactly as before. The new code makes no request, starts no timer and adds no log action. Affects study data: **no**.
@@ -69,3 +66,17 @@ Changes made in the typing and scrolling task.
 - **Fallback:** on any trace error, or when the trace takes longer than 45 seconds, or when the live text cannot be shown safely, the learner sees the stored content from the database, as today, with no message and no new log action. The trace text is never logged. A trace that arrives after the 45 seconds is ignored, so the text never changes under a learner who has started.
 - **Affects study data:** **yes, when the flag is on** (different text and different blanks than the stored question). It is a draft: the blank rules are first guesses to be tuned with the professor's criteria.
 - Browser checks for the flag-on and flag-off paths have not been run yet; run them before enabling the flag.
+
+### Committed, no effect on participants or logged data
+`0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (not connected to the app).
+- `4ed0a5e` (2026-10-26): trace route `POST /api/trace`, source policy, limits, and a `traces` table in `schema.ts` (written only by that route, which the page does not call with the flag off; the table has to be created by you with the database command before the route can save traces).
+- `073f91f` (2026-10-26): browser trace client, state reducer and `useTrace` hook, plus a development-only test page at `/dev/trace` (a 404 in production).
+- `375f508` (2026-10-26): the first draft of the blank generator (`lib/blanks`) and its preview script. Not used by the page.
+- `44f72db` (2026-10-26): blank generator tuning (trace-wide uniqueness, generic-term and give-away filters, spacing hold-back, hand-written fixtures). Not used by the page with the flag off.
+
+
+## Segmenter fences code, lead-in merge, blank generator tweaks (status: awaiting approval, no commit hash yet)
+
+- **Segmenter** (`lib/segment.ts`): code that a trace prints without a ``` fence (an indented run, or two or more flush-left lines that look like code) is now wrapped in a fence, so the page's markdown renderer keeps the indentation. A paragraph under 8 words that ends in a colon ("Here is the code:") is merged with the paragraph after it. Prose is not fenced.
+- **Blank generator** (`lib/blanks/propose.ts`): a number with a leading minus such as `-1` is no longer held back as spacing-sensitive, and `O(1)` is never proposed as a blank.
+- Affects study data: **only with `NEXT_PUBLIC_LIVE_TRACE=true`** (the segmenter and generator only shape live traces). With the flag off nothing changes. Not checked in a browser.

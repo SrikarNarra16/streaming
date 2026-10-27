@@ -73,7 +73,19 @@ export const TERM_NEEDS_EARLIER_MENTION = true;
  */
 export const HOLD_BACK_SPACING_SENSITIVE = true;
 export const SPACING_SENSITIVE = /[=<>+\-*/%]/;
-export const isSpacingSensitive = (answer: string) => SPACING_SENSITIVE.test(answer);
+/**
+ * A number with a leading minus ("-1", "-3.5") has no spacing to get wrong, so it is not spacing-sensitive.
+ * DRAFT.
+ */
+export const NEGATIVE_NUMBERS_ARE_SPACING_SAFE = true;
+const NEGATIVE_NUMBER = /^-\d+(?:\.\d+)?$/;
+export const isSpacingSensitive = (answer: string) =>
+  SPACING_SENSITIVE.test(answer) && !(NEGATIVE_NUMBERS_ARE_SPACING_SAFE && NEGATIVE_NUMBER.test(answer));
+/**
+ * The inside of a big-O expression that is never proposed as a blank: "O(1)" gives the answer "1", too easy to
+ * guess and not worth a blank. DRAFT.
+ */
+export const COMPLEXITY_NEVER_BLANKED: ReadonlySet<string> = new Set(["1"]);
 
 /**
  * Words that fit almost any trace, so blanking them tests little ("list", "value", ...). A "term" candidate in this
@@ -178,7 +190,7 @@ function complexityCandidates(paragraph: string): Raw[] {
     const inner = m[1];
     const lead = inner.length - inner.trimStart().length;
     const answer = inner.trim();
-    if (answer === "") continue;
+    if (answer === "" || COMPLEXITY_NEVER_BLANKED.has(answer.toLowerCase())) continue;
     const start = m.index! + 2 + lead;
     found.push({ answer, start, end: start + answer.length, kind: "complexity" });
   }

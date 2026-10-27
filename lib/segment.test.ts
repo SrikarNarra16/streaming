@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseContent } from "./content";
-import { findTraceArtifacts, segmentTrace, segmentTraceWithStats, toContent } from "./segment";
+import { findTraceArtifacts, isLeadIn, segmentTrace, segmentTraceWithStats, toContent } from "./segment";
+import { SAMPLE_REASONING, SAMPLE_STEPS } from "./trace/sample-trace";
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const words = (s: string) => (s.trim() === "" ? 0 : s.trim().split(/\s+/).length);
@@ -70,8 +71,7 @@ describe("sentence splitting", () => {
       "Second part",
     ]);
     expect(segmentTrace("Items:\n- one two three.\n- four five six.", PER_SENTENCE)).toEqual([
-      "Items:",
-      "- one two three.",
+      "Items: - one two three.", // the short lead-in joins the paragraph after it
       "- four five six.",
     ]);
   });
@@ -126,18 +126,18 @@ describe("code runs", () => {
 
   it("keeps an indented run whole, including its leading indentation", () => {
     const raw = "The plan is simple.\n    a = 1\n    b = 2\n\n    c = a + b\nThat is all.";
-    expect(segmentTrace(raw)).toEqual(["The plan is simple.", "    a = 1\n    b = 2\n\n    c = a + b", "That is all."]);
+    expect(segmentTrace(raw)).toEqual(["The plan is simple.", "```\n    a = 1\n    b = 2\n\n    c = a + b\n```", "That is all."]);
   });
 
   it("includes a flush-left 'def ...:' header line in the code run below it", () => {
     const raw = "Here is the function.\ndef f(x):\n    return x\nDone.";
-    expect(segmentTrace(raw)).toEqual(["Here is the function.", "def f(x):\n    return x", "Done."]);
+    expect(segmentTrace(raw)).toEqual(["Here is the function.", "```\ndef f(x):\n    return x\n```", "Done."]);
   });
 
   it("keeps a code run longer than hardMaxWords whole", () => {
     const code = Array.from({ length: 30 }, () => "    total = total + value * 2 + offset").join("\n");
     const result = segmentTrace(`Look at this.\n${code}`);
-    expect(result).toEqual(["Look at this.", code]);
+    expect(result).toEqual(["Look at this.", "```\n" + code + "\n```"]);
     expect(words(result[1])).toBeGreaterThan(140);
   });
 
@@ -225,7 +225,8 @@ describe("line endings and the no-words-lost property", () => {
     it(`loses no words: ${name}`, () => {
       const result = segmentTrace(raw);
       expect(result.length).toBeGreaterThan(0);
-      expect(norm(result.join(" "))).toBe(norm(raw));
+      // the only added text is the ``` fence around code that had none
+      expect(norm(result.join(" ").replace(/```/g, ""))).toBe(norm(raw.replace(/```/g, "")));
     });
   }
 });
@@ -271,5 +272,95 @@ describe("stats", () => {
   it("reports words, paragraphs and code paragraphs", () => {
     const { stats } = segmentTraceWithStats(`${sentence(45, "a")}\n    x = 1\n${sentence(45, "b")}`);
     expect(stats).toMatchObject({ inputWords: 45 + 3 + 45, paragraphs: 3, codeParagraphs: 1, replacements: 0 });
+  });
+});
+
+describe("code without a fence", () => {
+  it("wraps the sample trace's indented code block in a fence and keeps its indentation", () => {
+    const paragraphs = segmentTrace(SAMPLE_REASONING);
+    const code = paragraphs.filter((p) => p.startsWith("```"));
+    expect(code).toEqual(["```\ndef largest_gap(nums):\n    if len(nums) < 2:\n        return 0\n    ordered = sorted(nums)\n    best = 0\n    for i in range(1, len(ordered)):\n        best = max(best, ordered[i] - ordered[i - 1])\n    return best\n```"]);
+    expect(segmentTraceWithStats(SAMPLE_REASONING).stats).toMatchObject({ codeParagraphs: 1, codeFenced: 1 });
+  });
+
+  it("fences a flush-left run of statements (two or more lines)", () => {
+    const raw = "We set the pointers like this.\nlow = 0\nhigh = len(arr) - 1\nThen we loop.";
+    expect(segmentTrace(raw)).toEqual(["We set the pointers like this.", "```\nlow = 0\nhigh = len(arr) - 1\n```", "Then we loop."]);
+    const raw2 = "The update.\nif arr[mid] < target:\nlow = mid + 1\nelse:\nhigh = mid - 1\nDone here.";
+    expect(segmentTrace(raw2)[1]).toBe("```\nif arr[mid] < target:\nlow = mid + 1\nelse:\nhigh = mid - 1\n```");
+    const raw3 = "Loop below.\nfor i in range(1, len(ordered)):\n    best = max(best, ordered[i] - ordered[i - 1])\nAnd return it.";
+    expect(segmentTrace(raw3)[1]).toBe("```\nfor i in range(1, len(ordered)):\n    best = max(best, ordered[i] - ordered[i - 1])\n```");
+  });
+
+  it("does not fence a single code-like line, prose, or lines that end like sentences", () => {
+    for (const raw of [
+      "We set x first.\nlow = 0\nThen we think about it for a while.",
+      "The gap is 3.\nThen we continue with the next pair of numbers.\nThe answer is 3 in the end.",
+      "x = 3 is the start.\ny = 4 is the end.",
+      "Keep going while the range is not empty\nand then return the best value so far",
+    ]) {
+      expect(segmentTrace(raw).some((p) => p.includes("```"))).toBe(false);
+    }
+  });
+
+  it("leaves a block the model already fenced as it is (no second fence)", () => {
+    const fence = "```python\nlow = 0\nhigh = 5\n```";
+    expect(segmentTrace(`Look.\n${fence}\nDone.`)).toEqual(["Look.", fence, "Done."]);
+    expect(segmentTraceWithStats(`Look.\n${fence}\nDone.`).stats.codeFenced).toBe(0);
+  });
+
+  it("is idempotent for its own output and loses no words", () => {
+    const once = segmentTrace(SAMPLE_REASONING);
+    const twice = segmentTrace(once.join("\n\n"));
+    expect(twice).toEqual(once);
+    expect(norm(once.join(" ").replace(/```/g, ""))).toBe(norm(SAMPLE_REASONING));
+  });
+
+  it("the fenced paragraph reads back through the page's parser as one plain paragraph", () => {
+    const paragraphs = segmentTrace(SAMPLE_REASONING);
+    const parsed = parseContent(toContent(paragraphs));
+    expect(parsed).toHaveLength(paragraphs.length);
+    const codeIndex = paragraphs.findIndex((p) => p.startsWith("```"));
+    expect(parsed[codeIndex]).toEqual([{ type: "text", text: paragraphs[codeIndex] }]);
+  });
+});
+
+describe("short lead-in paragraphs ending in a colon", () => {
+  it("merges a lead-in under 8 words with the paragraph after it", () => {
+    expect(segmentTrace("Here is the idea:\n\nSort the list first and then compare each pair of neighbours.", PER_SENTENCE)).toEqual([
+      "Here is the idea: Sort the list first and then compare each pair of neighbours.",
+    ]);
+    expect(segmentTraceWithStats("Steps:\n\nSort it.", PER_SENTENCE).stats.leadInsMerged).toBe(1);
+  });
+
+  it("merges with a code paragraph after it, with a blank line between", () => {
+    expect(segmentTrace("Here is the whole function:\n    a = 1\n    b = 2")).toEqual(["Here is the whole function:\n\n```\n    a = 1\n    b = 2\n```"]);
+  });
+
+  it("keeps the lead-in for the next paragraph instead of merging it backwards as a short tail", () => {
+    const long = sentence(45, "a");
+    // the lead-in would be a short tail of the prose block, which is normally merged backwards
+    expect(segmentTrace(`${long}\n\nNow the code:\n    a = 1\n    b = 2`)).toEqual([long, "Now the code:\n\n```\n    a = 1\n    b = 2\n```"]);
+  });
+
+  it("handles a lead-in chain and a lead-in at the very end", () => {
+    expect(segmentTrace("First:\n\nThen:\n\nBody of the text here.", PER_SENTENCE)).toEqual(["First: Then: Body of the text here."]);
+    expect(segmentTrace("Some text is here.\n\nThe end:", PER_SENTENCE)).toEqual(["Some text is here.", "The end:"]);
+  });
+
+  it("leaves a colon inside a longer paragraph, and a lead-in of 8 or more words, untouched", () => {
+    const long = "There is one more thing to check here: the list may be empty or hold a single value only.";
+    expect(segmentTrace(`${long}\n\nNext paragraph follows with more words in it.`, PER_SENTENCE)).toEqual([long, "Next paragraph follows with more words in it."]);
+    const eight = "We now look at the code like so:";
+    expect(words(eight)).toBe(8);
+    expect(segmentTrace(`${eight}\n\nThe code comes after this sentence.`, PER_SENTENCE)).toEqual([eight, "The code comes after this sentence."]);
+    expect(isLeadIn("Seven words are in this lead in:")).toBe(true);
+    expect(isLeadIn("No colon at the end")).toBe(false);
+    expect(isLeadIn("a: b is not a lead-in.")).toBe(false);
+  });
+
+  it("keeps all words, and the sample steps text still ends in code with its lead-in sentence inside a paragraph", () => {
+    const paragraphs = segmentTrace(SAMPLE_STEPS);
+    expect(norm(paragraphs.join(" ").replace(/```[a-z]*/g, ""))).toBe(norm(SAMPLE_STEPS.replace(/```[a-z]*/g, "")));
   });
 });

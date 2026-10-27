@@ -4,7 +4,8 @@
 // replacements described under "Content safety" below.
 //
 // Pipeline: normalise -> split into prose blocks and code runs -> split prose into sentences ->
-// group sentences into paragraphs -> merge a short tail -> neutralise `$$` and `BLANK(`.
+// group sentences into paragraphs -> merge a short tail -> merge a short lead-in ending in a colon with the
+// paragraph after it -> wrap unfenced code in a ``` fence -> neutralise `$$` and `BLANK(`.
 
 export interface SegmentOptions {
   /** Close a paragraph at the first sentence boundary at or after this many words (default 40). */
@@ -34,6 +35,10 @@ export interface SegmentStats {
   longSentencesSplit: number;
   /** Short tails merged into the previous paragraph. */
   tailsMerged: number;
+  /** Short lead-in paragraphs ending in a colon merged with the paragraph after them. */
+  leadInsMerged: number;
+  /** Code runs that the model printed without a fence and that were wrapped in a ``` fence. */
+  codeFenced: number;
   /** `$$` replaced by `$ $` (one per `$` that was directly followed by another `$`). */
   dollarReplacements: number;
   /** `BLANK(` (any letter case) replaced by `BLANK (` (the same letters, a space before the parenthesis). */
@@ -55,6 +60,11 @@ export interface TraceArtifact {
 }
 
 const MIN_CLAUSE_WORDS = 10;
+
+/** A paragraph under this many words that ends in a colon is a lead-in ("Here is the code:") and joins the next one. */
+export const LEAD_IN_MAX_WORDS = 8;
+/** Flush-left lines that look like code are one code run only from this many lines in a row. */
+export const MIN_FLUSH_CODE_LINES = 2;
 
 // Abbreviations after which a full stop does not end a sentence.
 const ABBREVIATIONS = new Set([
@@ -79,6 +89,17 @@ const FENCE = /^\s*```/;
 const INDENTED = /^(?: {4,}|\t)\S/; // 4+ spaces or a tab, then text
 // A flush-left line that opens an indented block (for example "def f(x):") belongs to the code run below it.
 const CODE_HEADER = /^\s*(?:def|class|for|while|if|elif|else|try|except|finally|with|async|function)\b.*[:{]\s*$/;
+
+// A flush-left line that looks like a statement. Only a run of MIN_FLUSH_CODE_LINES or more such lines is code.
+const ASSIGNMENT = /^[A-Za-z_][\w.]*(?:\[[^\]\n]*\])?\s*(?:[-+*/%]|\/\/)?=(?!=)\s*\S/;
+const STATEMENT = /^(?:break|continue|pass|return(?:\s+\S.*)?|raise\s+\S.*|import\s+\S.*|from\s+\S+\s+import\s+\S.*|print\(.*\)|yield\s+\S.*)$/;
+const CALL = /^[A-Za-z_][\w.]*\(.*\)$/;
+
+export function looksLikeCodeLine(line: string): boolean {
+  const t = line.trim();
+  if (t === "" || /[.!?]$/.test(t)) return false; // prose sentences end like this
+  return CODE_HEADER.test(t) || ASSIGNMENT.test(t) || STATEMENT.test(t) || CALL.test(t);
+}
 
 function toBlocks(text: string): Block[] {
   const lines = text.split("\n");
@@ -124,6 +145,15 @@ function toBlocks(text: string): Block[] {
     i = end;
   }
 
+  // Flush-left code the model printed without indentation: a run of lines that look like statements.
+  for (let i = 0; i < lines.length; i++) {
+    if (kinds[i] !== "prose" || !looksLikeCodeLine(lines[i])) continue;
+    let end = i;
+    while (end + 1 < lines.length && kinds[end + 1] === "prose" && looksLikeCodeLine(lines[end + 1])) end++;
+    if (end - i + 1 >= MIN_FLUSH_CODE_LINES) for (let x = i; x <= end; x++) kinds[x] = "code";
+    i = end;
+  }
+
   const blocks: Block[] = [];
   lines.forEach((line, i) => {
     const last = blocks[blocks.length - 1];
@@ -140,6 +170,13 @@ function codeText(lines: string[]): string {
   while (start < end && lines[start].trim() === "") start++;
   while (end > start && lines[end - 1].trim() === "") end--;
   return lines.slice(start, end).join("\n").trimEnd();
+}
+
+// Code that has no fence gets one, so the page's markdown renderer keeps the line breaks and indentation.
+// Code that the model already fenced is left as it is.
+function fenced(code: string): { text: string; wrapped: boolean } {
+  if (FENCE.test(code.split("\n")[0])) return { text: code, wrapped: false };
+  return { text: "```\n" + code + "\n```", wrapped: true };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -216,6 +253,12 @@ function splitLongSentence(sentence: string, hardMax: number): string[] {
   return pieces;
 }
 
+/** A short prose paragraph that ends in a colon. */
+export function isLeadIn(paragraph: string): boolean {
+  const t = paragraph.trim();
+  return t.endsWith(":") && !t.includes("\n") && countWords(t) < LEAD_IN_MAX_WORDS;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Grouping
 // ---------------------------------------------------------------------------------------------
@@ -282,6 +325,8 @@ export function segmentTraceWithStats(raw: string, options: SegmentOptions = {})
     codeParagraphs: 0,
     longSentencesSplit: 0,
     tailsMerged: 0,
+    leadInsMerged: 0,
+    codeFenced: 0,
     dollarReplacements: 0,
     blankReplacements: 0,
     trailingDollarGuards: 0,
@@ -292,13 +337,15 @@ export function segmentTraceWithStats(raw: string, options: SegmentOptions = {})
   if (text === "") return { paragraphs: [], stats };
   stats.inputWords = countWords(text);
 
-  const paragraphs: string[] = [];
+  const entries: Array<{ text: string; code: boolean }> = [];
   for (const block of toBlocks(text)) {
     if (block.kind === "code") {
       const code = codeText(block.lines);
       if (code !== "") {
-        paragraphs.push(code);
+        const { text: fencedCode, wrapped } = fenced(code);
+        entries.push({ text: fencedCode, code: true });
         stats.codeParagraphs++;
+        if (wrapped) stats.codeFenced++;
       }
       continue;
     }
@@ -315,12 +362,25 @@ export function segmentTraceWithStats(raw: string, options: SegmentOptions = {})
     if (grouped.length >= 2) {
       const tail = grouped[grouped.length - 1];
       const previous = grouped[grouped.length - 2];
-      if (countWords(tail) < o.minTailWords && countWords(previous) + countWords(tail) <= o.hardMaxWords) {
+      // (a lead-in such as "Here is the code:" is kept for the paragraph after it, see below)
+      if (!isLeadIn(tail) && countWords(tail) < o.minTailWords && countWords(previous) + countWords(tail) <= o.hardMaxWords) {
         grouped.splice(grouped.length - 2, 2, `${previous} ${tail}`);
         stats.tailsMerged++;
       }
     }
-    paragraphs.push(...grouped);
+    entries.push(...grouped.map((paragraph) => ({ text: paragraph, code: false })));
+  }
+
+  // A short lead-in ending in a colon belongs with what follows it (a blank line separates it from a code run).
+  const paragraphs: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    let current = entries[i];
+    while (!current.code && isLeadIn(current.text) && i + 1 < entries.length) {
+      const next = entries[++i];
+      current = { text: current.text + (next.code ? "\n\n" : " ") + next.text, code: next.code };
+      stats.leadInsMerged++;
+    }
+    paragraphs.push(current.text);
   }
 
   const safe = paragraphs.map((p) => neutralise(p, stats));

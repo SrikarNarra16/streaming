@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { segmentTrace } from "../segment";
 import { SAMPLE_REASONING, SAMPLE_STEPS } from "../trace/sample-trace";
 import { BINARY_SEARCH_TRACE, SPIRAL_MATRIX_TRACE } from "./fixtures";
-import { GENERIC_TERMS, HOLD_BACK_SPACING_SENSITIVE, isCodeParagraph, isSpacingSensitive, KIND_PRIORITY, MIN_PARAGRAPH_WORDS, proposeBlanks, proposeBlanksWithStats, type BlankCandidate, type ProposeOptions } from "./propose";
+import { COMPLEXITY_NEVER_BLANKED, GENERIC_TERMS, NEGATIVE_NUMBERS_ARE_SPACING_SAFE, HOLD_BACK_SPACING_SENSITIVE, isCodeParagraph, isSpacingSensitive, KIND_PRIORITY, MIN_PARAGRAPH_WORDS, proposeBlanks, proposeBlanksWithStats, type BlankCandidate, type ProposeOptions } from "./propose";
 import { validateBlank } from "./validate";
 
 // A first paragraph (skipped by default) that is long enough, and filler so a paragraph reaches 15 words.
@@ -304,8 +304,10 @@ describe("spacing-sensitive answers", () => {
   });
 
   it("knows which answers are sensitive", () => {
-    for (const a of ["low <= high", "low=mid+1", "m*n", "n + m", "a/b", "x%2", "-1", "a<b", "a>b", "a==b"]) expect(isSpacingSensitive(a)).toBe(true);
+    for (const a of ["low <= high", "low=mid+1", "m*n", "n + m", "a/b", "x%2", "a<b", "a>b", "a==b", "a-b", "- 1", "--1", "-x", "1-2"]) expect(isSpacingSensitive(a)).toBe(true);
     for (const a of ["log n", "n log n", "0", "mid", "largest_gap", "arr[mid]"]) expect(isSpacingSensitive(a)).toBe(false);
+    for (const a of ["-1", "-3", "-3.5", "-100"]) expect(isSpacingSensitive(a)).toBe(false); // a leading minus on a number is spacing-safe
+    expect(NEGATIVE_NUMBERS_ARE_SPACING_SAFE).toBe(true);
   });
 
   it("holds conditions and updates back by default, counts them, and gives only safe answers", () => {
@@ -370,8 +372,9 @@ describe("hand-written fixtures", () => {
   it("binary search with includeSpacingSensitive false: nothing with an operator, but the complexity and a number", () => {
     const list = answersOf(BINARY_SEARCH_TRACE);
     expect(list.length).toBeGreaterThan(0);
-    for (const c of list) expect(c.answer).not.toMatch(/[=<>+\-*/%]/);
-    expect(list.map((c) => c.answer)).toEqual(expect.arrayContaining(["log n"]));
+    for (const c of list) expect(c.answer).not.toMatch(/[=<>+*/%]|(?!^-\d)-/); // only a leading minus on a number is allowed
+    expect(list.map((c) => c.answer)).toEqual(expect.arrayContaining(["log n", "-1"]));
+    expect(list.find((c) => c.answer === "-1")).toMatchObject({ kind: "number", spacingSensitive: false });
   });
 
   it("binary search with includeSpacingSensitive true: conditions and updates appear, each answer once", () => {
@@ -401,5 +404,30 @@ describe("hand-written fixtures", () => {
         expect(() => applyBlanks(paragraphs, best)).not.toThrow();
       }
     }
+  });
+});
+
+describe("negative numbers and O(1)", () => {
+  it('"-1" is proposed with spacing-sensitive filtering on, and is marked spacingSensitive: false', () => {
+    const p = `An empty array returns -1 at once, and a single element works because the range holds exactly one place ${FILL}.`;
+    const [c] = second(p, { includeSpacingSensitive: false });
+    expect(c).toMatchObject({ kind: "number", answer: "-1", spacingSensitive: false });
+    expect(p.slice(c.start, c.end)).toBe("-1");
+    expect(proposeBlanksWithStats([INTRO, p]).stats.heldBackSpacingSensitive).toBe(0);
+  });
+
+  it("O(1) is never proposed, whatever the options, while O(n) and O(log n) still are", () => {
+    expect(COMPLEXITY_NEVER_BLANKED.has("1")).toBe(true);
+    const p = `The running time is fine and the extra space is O(1) because we only keep a few variables around ${FILL}.`;
+    for (const options of [{}, { includeSpacingSensitive: true, allowGenericTerms: true, allowRepeatAcrossParagraphs: true, maxBlanksPerParagraph: 9 }]) {
+      expect(second(p, options).filter((c) => c.kind === "complexity")).toEqual([]);
+      expect(second(p, options).map((c) => c.answer)).not.toContain("1");
+    }
+    expect(second(`The running time is O(n) because we walk the data once and the extra space is small ${FILL}.`)[0]).toMatchObject({ kind: "complexity", answer: "n" });
+  });
+
+  it("with two complexities in a paragraph only the non-trivial one is proposed", () => {
+    const p = `Each step halves the range, so the time is O(log n) and the extra space is O(1) in the end ${FILL}.`;
+    expect(second(p, { maxBlanksPerParagraph: 5 }).filter((c) => c.kind === "complexity").map((c) => c.answer)).toEqual(["log n"]);
   });
 });
