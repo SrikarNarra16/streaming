@@ -10,6 +10,8 @@ import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
 import { nextToken, isBlankAnswerCorrect } from "@/lib/content";
 import { nextNearBottom, scrollBehaviorFor } from "@/lib/scroll";
+import { shouldTypeOnResume } from "@/lib/streaming-flow";
+import { createTimerSet } from "@/lib/timers";
 import { useQuestionContent } from "@/lib/trace/use-question-content";
 // Change AI Thinks
 // Fix output code markdown
@@ -145,11 +147,22 @@ function StreamingPage() {
 
     // Token for the showAIAnswer loop: incremented to cancel it (on reset, next question and unmount).
     const answerStreamTokenRef = useRef(0);
+
+    // The one-off timers of the flow (paragraph end 200 ms, "Ok" prompt 500 ms, blank feedback 1500 ms).
+    // All are cancelled on reset, next question and unmount, so none can update state afterwards.
+    const [timers] = useState(createTimerSet);
+    // The typing loop stopped at a paragraph break and the learner has not answered the feedback yet.
+    const paragraphEndRef = useRef(false);
+    // The newest values, for timers that fire later (a closure would hold the values of the render that set it).
+    const latestRef = useRef({ isPaused: false, isWaitingForBlankFill: false });
+    latestRef.current = { isPaused, isWaitingForBlankFill };
+
     useEffect(() => {
         return () => {
             answerStreamTokenRef.current += 1;
+            timers.clearAll();
         };
-    }, []);
+    }, [timers]);
 
     // Fetch all questions on component mount
     useEffect(() => {
@@ -206,6 +219,7 @@ function StreamingPage() {
 
             // Check for paragraph break - Custom paragraph break - $$
             if (token.kind === "paragraphBreak") {
+                paragraphEndRef.current = true;
                 setIsTyping(false); // Stop typing
                 setTextPosition(textPosition + token.length);
                 return; // End this tick
@@ -230,14 +244,15 @@ function StreamingPage() {
         if (isPaused || displayPosition >= currentParagraph.length) {
             // This logic runs when the paragraph has finished displaying
             if (displayPosition >= currentParagraph.length && !isTyping && currentParagraph.length > 0) {
-                setTimeout(() => {
+                // (replaces a pending one; cancelled on reset, next question and unmount)
+                timers.set(() => {
                     if (justCompletedBlank) {
                         setJustCompletedBlank(false);
-                        if (!isPaused) setIsTyping(true); // Resume typing
-                    } else if (!isWaitingForBlankFill) {
+                        if (!latestRef.current.isPaused) setIsTyping(true); // Resume typing
+                    } else if (!latestRef.current.isWaitingForBlankFill) {
                         setIsWaitingForFeedback(true);
                     }
-                }, 200);
+                }, 200, "paragraph-end");
             }
             return;
         }
@@ -252,7 +267,7 @@ function StreamingPage() {
         }, TYPING_INTERVAL_MS);
 
         return () => clearInterval(intervalId);
-    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank, isWaitingForBlankFill]);
+    }, [currentParagraph, displayPosition, isPaused, isTyping, justCompletedBlank, isWaitingForBlankFill, timers]);
 
     useEffect(() => {
         if (currentParagraph === "") {
@@ -317,15 +332,19 @@ function StreamingPage() {
         } else if (isStreamingSessionActive) {
             logButtonClick(isPaused ? "resume_button_click" : "pause_button_click", { questionId: currentQuestion.id });
             setIsPaused(!isPaused);
-            setIsTyping(isPaused); // This will resume the main useEffect loop
+            // Resume restarts the typing loop only if the pause interrupted typing, not if the page is waiting
+            // for a blank, the feedback box or the chat (see lib/streaming-flow.ts)
+            setIsTyping(isPaused && shouldTypeOnResume({ isWaitingForBlankFill, isWaitingForFeedback, hasActiveAccordion: activeAccordion !== null, isAtParagraphEnd: paragraphEndRef.current, isContentComplete }));
         }
     };
     
     // Clears all learner-visible state. Used by the Reset button and when moving to the next
     // question. It writes no log entry: only a real Reset click does (see handleReset).
     const resetStreamingState = () => {
-        // Cancel an in-flight showAIAnswer loop so it stops writing state
+        // Cancel an in-flight showAIAnswer loop and every pending timer so they stop writing state
         answerStreamTokenRef.current += 1;
+        timers.clearAll();
+        paragraphEndRef.current = false;
         setIsStreamingAIAnswer(false);
         setIsTyping(false);
         setIsPaused(false);
@@ -393,9 +412,10 @@ function StreamingPage() {
             setCurrentParagraph("");
             setDisplayPosition(0);
             setIsWaitingForFeedback(false);
+            paragraphEndRef.current = false;
             if (textPosition >= aiText.length) {
                 setIsContentComplete(true);
-                setTimeout(() => setShowAIPrompt(true), 500);
+                timers.set(() => setShowAIPrompt(true), 500, "show-ai-prompt");
             } else if (!isPaused) {
                 setIsTyping(true);
             }
@@ -436,9 +456,10 @@ function StreamingPage() {
         setDisplayPosition(0);
         setActiveAccordion(null);
         setIsWaitingForFeedback(false);
+        paragraphEndRef.current = false;
         if (textPosition >= aiText.length) {
                 setIsContentComplete(true);
-                setTimeout(() => setShowAIPrompt(true), 500);
+                timers.set(() => setShowAIPrompt(true), 500, "show-ai-prompt");
             } else if (!isPaused) {
                 setIsTyping(true);
             }
@@ -465,13 +486,13 @@ function StreamingPage() {
 
         setCurrentParagraph(prev => prev + answerText);
         
-        setTimeout(() => {
+        timers.set(() => {
             setIsWaitingForBlankFill(false);
             setFeedbackMessage("");
             setUserInput("");
             setCurrentBlankAnswer(null);
             setJustCompletedBlank(true); // This will trigger the display animation useEffect to resume typing
-        }, FEEDBACK_DURATION_MS);
+        }, FEEDBACK_DURATION_MS, "blank-feedback");
     };
     
     // --- API & Helper Functions ---

@@ -93,3 +93,10 @@ Changes made in the typing and scrolling task.
 - A new read-only tool, `npx pnpm@8 trace:report -- --yes` (`scripts/trace-report.ts`, with the number crunching in `lib/trace/report.ts`). It summarises the `traces` table: counts, word counts, error codes, timings and ready traces per question. It only runs SELECT queries in a read-only transaction, selects no learner ids and no trace text, and refuses to connect without `--yes`.
 - Affects study data: **no**. It is not part of the app and writes nothing.
 
+## Streaming page: stale timers and Resume (status: awaiting approval, no commit hash yet)
+
+- **Stale timers** (`app/streaming/page.tsx`, `lib/timers.ts`): the 200 ms paragraph-end timer, the 500 ms "Ok" prompt timer and the 1500 ms blank-feedback timer are now cancelled on Reset, on Next Question and when the page is left. Before, one that was still pending when the learner pressed Reset could fire afterwards: the "Am I making sense?" box or the "Ok" prompt could appear on a cleared page, typing could restart without pressing Start, and a blank-feedback timer could leave the next paragraph skipping its feedback box. A 200 ms timer also reads the current pause state when it fires, instead of the state of the render that set it.
+- **Resume** (`lib/streaming-flow.ts`): pressing Resume used to restart typing even when the page was waiting for the learner (a blank input, the feedback box, the chat). The next paragraph was then typed onto the unanswered one, so the "I understand" log row (`paragraph`) could hold two paragraphs, or text ran under a blank input. Resume now restarts typing only when the pause interrupted typing in the middle of a paragraph.
+- **Delays are unchanged:** typing speed (10 ms per character), 200 ms, 500 ms and 1500 ms are the same. Logged action names are unchanged.
+- Affects study data: **maybe, rarely.** In normal use nothing changes. In the cases above (Reset within about 1.5 s of a blank answer or a paragraph end, Pause then Resume while a blank or the feedback box is showing) the page used to produce spurious or merged log rows and now does not. Not checked in a browser.
+
