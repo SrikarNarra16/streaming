@@ -10,7 +10,7 @@ Rules for every task:
 - No unrelated refactors or drive-by fixes. List other issues you notice in your report instead.
 - After changes, run node_modules/.bin/tsc --noEmit. Report any errors, and my changes must add none.
 - Package manager: use `npx pnpm@8 ...` for installs. `pnpm dev` fails on pnpm 11, so run the app with node_modules/.bin/next dev.
-- Database: local Docker container streaming-pg on 127.0.0.1:5433. Never run db:reset or drop data on the main database. Use a throwaway database for destructive tests, and drop it afterwards.
+- Database: local Docker container streaming-pg on 127.0.0.1:5433. Claude Code never runs a script or command that writes to any database (main or throwaway): no `db:reset`, no dropping data, no seed. You run those; see the rule on database scripts below.
 - Do not change the learner-facing flow (typing, gates, blanks, chat) unless the task says so.
 - Question content format: `$$` between paragraphs, BLANK(answer) for fill-in-the-blank markers, stored in questions.content.
 - Never execute a script that loads `.env.local` or calls a paid API (currently `scripts/trace-live-smoke.ts` and `scripts/trace-spike.ts`), not even with a flag, a pipe (for example `| head`) or an unset variable: the script loads `.env.local` itself, and a request can start before a pipe closes. Unit-test the pure parts instead. If a live check is needed, ask me to run it.

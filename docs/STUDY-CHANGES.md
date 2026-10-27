@@ -60,7 +60,7 @@ Changes made in the typing and scrolling task.
 - **Reduced motion** (`app/globals.css`): with the operating-system setting on, CSS transitions, the pulse animation, the hover scale and smooth scrolling are off. The spinner and all JavaScript timing are unchanged. Affects study data: **no**.
 - **Accessibility** (`app/streaming/page.tsx`): the text container has `aria-live="off"` and `aria-busy` while typing. Affects study data: **no**.
 
-## Live trace on the learner page, behind a flag (not committed yet)
+## 57c9de4 (2026-10-27): live trace on the learner page, behind a flag
 
 - **Flag:** `NEXT_PUBLIC_LIVE_TRACE`. It is on only when it is exactly `true`. It is **off by default** (unset, empty or any other value). It is read when the app is built or started, so changing it needs a restart.
 - **Flag off:** the page uses the stored question content exactly as before. The new code makes no request, starts no timer and adds no log action. Affects study data: **no**.
@@ -68,3 +68,4 @@ Changes made in the typing and scrolling task.
 - **Fixed blanks per question:** the generator is given a fixed seed made from the question id (`question-<id>`), so the same trace gives every learner the same blanks. Different traces of the same question (each request generates a new one) can still differ.
 - **Fallback:** on any trace error, or when the trace takes longer than 45 seconds, or when the live text cannot be shown safely, the learner sees the stored content from the database, as today, with no message and no new log action. The trace text is never logged. A trace that arrives after the 45 seconds is ignored, so the text never changes under a learner who has started.
 - **Affects study data:** **yes, when the flag is on** (different text and different blanks than the stored question). It is a draft: the blank rules are first guesses to be tuned with the professor's criteria.
+- Browser checks for the flag-on and flag-off paths have not been run yet; run them before enabling the flag.
