@@ -74,10 +74,10 @@ Changes made in the typing and scrolling task.
 - Affects study data: **only with `NEXT_PUBLIC_LIVE_TRACE=true`** (the segmenter and generator only shape live traces). With the flag off nothing changes. Not checked in a browser.
 
 ### Committed, no effect on participants or logged data
-`0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (not connected to the app).
+`0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (at that time not connected to the app; the learner page uses them only when the live-trace flag is on, see 57c9de4).
 - `4ed0a5e` (2026-10-26): trace route `POST /api/trace`, source policy, limits, and a `traces` table in `schema.ts` (written only by that route, which the page does not call with the flag off; the table has to be created by you with the database command before the route can save traces).
 - `073f91f` (2026-10-26): browser trace client, state reducer and `useTrace` hook, plus a development-only test page at `/dev/trace` (a 404 in production).
-- `375f508` (2026-10-26): the first draft of the blank generator (`lib/blanks`) and its preview script. Not used by the page.
+- `375f508` (2026-10-26): the first draft of the blank generator (`lib/blanks`) and its preview script. Not used by the page at that commit (the page uses the generator only when the live-trace flag is on, see 57c9de4).
 - `44f72db` (2026-10-26): blank generator tuning (trace-wide uniqueness, generic-term and give-away filters, spacing hold-back, hand-written fixtures). Not used by the page with the flag off.
 
 ## TRACE_REUSE: show every learner the same saved trace (status: awaiting approval, no commit hash yet)

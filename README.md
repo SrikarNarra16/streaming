@@ -158,7 +158,7 @@ Changing `SESSION_SECRET` signs everyone out. Anyone can still register an accou
 
 Optional: `DEEPSEEK_CHAT_MODEL` sets the model used by the doubt-chat (default `deepseek-flash`; thinking is disabled for the tutor chat so the short answer is not used up by reasoning tokens).
 
-Optional, for the live thinking-trace provider in `lib/trace/` (not wired into the app yet; read by `readTraceSettingsFromEnv()` in `lib/trace/deepseek-client.ts`):
+Optional, for the live thinking-trace provider in `lib/trace/` (the learner page uses the live trace only when `NEXT_PUBLIC_LIVE_TRACE=true`; it is off by default, see below; settings read by `readTraceSettingsFromEnv()` in `lib/trace/deepseek-client.ts`):
 
 - `DEEPSEEK_TRACE_MODEL`: the model that produces the reasoning trace (default `deepseek-flash`). A value that is empty or contains characters other than letters, digits, `.`, `_` and `-` is ignored and the default is used.
 - `DEEPSEEK_TRACE_MAX_TOKENS`: the `max_tokens` limit for one trace request (default `8000`). Reasoning tokens count inside `max_tokens`, so keep it generous: a trace that hits the limit ends with finish reason `length`. Values that are not whole numbers between 256 and 100000 are ignored and the default is used.
@@ -170,6 +170,9 @@ Optional, for the live trace route `POST /api/trace` (all have defaults and inva
 - `TRACE_MIN_WORDS` (`150`) and `TRACE_MAX_WORDS` (`500`): the word range for `auto`. The reasoning call is stopped as soon as the cleaned reasoning passes the maximum.
 - `TRACE_PROVIDER` (`deepseek`): `mock` replays an invented sample and needs no key.
 - `TRACE_MAX_PER_HOUR` (`20`): traces per user per rolling hour. One trace may run per user at a time. Both limits are counted in memory, so they are per server process.
+- `TRACE_REUSE` (`false`): when exactly `true`, a request for a question that already has a saved `ready` trace gets that trace again instead of a new one (no AI call, no new row, not counted in `TRACE_MAX_PER_HOUR`), so all learners see the same trace. With no saved trace one is generated as usual.
+
+Optional, in the browser build: `NEXT_PUBLIC_LIVE_TRACE`. Only the exact value `true` makes the learner page ask `/api/trace` for a live trace of the current question (with draft blanks) instead of the stored question content; on any error or after 45 seconds it falls back to the stored content. It is **off by default**, and with it off the page behaves as before and makes no trace request. Next.js fixes this value into the build, so **changing it needs a rebuild and a restart**.
 - `TRACE_FIRST_EVENT_TIMEOUT_MS` (`30000`), `TRACE_IDLE_TIMEOUT_MS` (`30000`) and `TRACE_TOTAL_TIMEOUT_MS` (`180000`): the limits for each provider call.
 
 ## Known audit findings
