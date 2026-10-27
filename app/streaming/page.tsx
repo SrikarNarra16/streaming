@@ -10,6 +10,7 @@ import { ModernBlankInput } from "@/components/streaming/ModernBlankInput";
 import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisplay";
 import { nextToken, isBlankAnswerCorrect } from "@/lib/content";
 import { nextNearBottom, scrollBehaviorFor } from "@/lib/scroll";
+import { useQuestionContent } from "@/lib/trace/use-question-content";
 // Change AI Thinks
 // Fix output code markdown
 
@@ -95,7 +96,8 @@ function StreamingPage() {
     const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
 
-    const aiText = currentQuestion?.content || "";
+    // The stored content, or (only with NEXT_PUBLIC_LIVE_TRACE=true) the live trace with draft blanks.
+    const { content: aiText, loading: isContentLoading } = useQuestionContent(currentQuestion);
 
     // Core streaming state
     const [isTyping, setIsTyping] = useState(false);
@@ -565,7 +567,7 @@ function StreamingPage() {
 
     const getButtonState = () => {
         if (isContentComplete) return { text: "Complete", color: "bg-emerald-500 hover:bg-emerald-600", disabled: true };
-        if (!currentQuestion) return { text: "Loading...", color: "bg-gray-500", disabled: true };
+        if (!currentQuestion || isContentLoading) return { text: "Loading...", color: "bg-gray-500", disabled: true };
         if (!isStreamingSessionActive) return { text: "Start", color: "bg-blue-500 hover:bg-blue-600", disabled: false };
         if (isPaused) return { text: "Resume", color: "bg-emerald-500 hover:bg-emerald-600", disabled: false };
         return { text: "Pause", color: "bg-violet-500 hover:bg-violet-600", disabled: false };
