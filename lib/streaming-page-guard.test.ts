@@ -49,3 +49,39 @@ describe("streaming page timers", () => {
     expect(code).toContain("const FEEDBACK_DURATION_MS = 1500;");
   });
 });
+
+describe("streaming page typing clock", () => {
+  it('has the TYPING_CLOCK switch, "legacy" by default (what learners have always seen), and no environment variable for it', () => {
+    expect(code).toContain('const TYPING_CLOCK = "legacy" as "raf" | "legacy";');
+    expect(code).not.toMatch(/process\.env/);
+  });
+
+  it("the legacy loop only runs for the legacy clock and the raf loop only for raf", () => {
+    expect(code).toContain('if (TYPING_CLOCK !== "legacy" || !isTyping || isPaused)');
+    expect(code).toContain('if (TYPING_CLOCK !== "raf" || !isTyping || isPaused) return;');
+  });
+
+  it("the raf loop freezes the clock on cleanup and when the tab is hidden, and reads no reduced-motion setting", () => {
+    expect(code).toContain('document.addEventListener("visibilitychange", onVisibility)');
+    expect(code).toContain("cancelAnimationFrame(frameId)");
+    expect(code).toContain("tickTypingClock(typingClockRef.current, performance.now(), false)");
+    const loop = code.slice(code.indexOf("// --- TYPING CLOCK"), code.indexOf("// --- DISPLAY ANIMATION"));
+    expect(loop).not.toMatch(/reduced-motion|matchMedia/);
+  });
+
+  it("Reset restarts the clock and the count of characters shown", () => {
+    const reset = code.slice(code.indexOf("const resetStreamingState"), code.indexOf("const handleReset"));
+    expect(reset).toContain("typingClockRef.current = newTypingClock()");
+    expect(reset).toContain("typedCharsRef.current = 0");
+  });
+
+  it("the typed paragraph is a memoised component", () => {
+    expect(code).toContain("const TypedText = React.memo(");
+    expect(code).toContain("<TypedText text={displayedCurrentParagraph} />");
+  });
+
+  it("the AI answer reveal still waits 15 ms per character", () => {
+    expect(code).toContain("setTimeout(res, 15)");
+  });
+});
+

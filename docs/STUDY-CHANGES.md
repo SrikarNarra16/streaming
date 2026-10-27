@@ -100,3 +100,11 @@ Changes made in the typing and scrolling task.
 - **Delays are unchanged:** typing speed (10 ms per character), 200 ms, 500 ms and 1500 ms are the same. Logged action names are unchanged.
 - Affects study data: **maybe, rarely.** In normal use nothing changes. In the cases above (Reset within about 1.5 s of a blank answer or a paragraph end, Pause then Resume while a blank or the feedback box is showing) the page used to produce spurious or merged log rows and now does not. Not checked in a browser.
 
+## Typing speed independent of frame rate (status: awaiting approval, no commit hash yet)
+
+- **Default: `"legacy"`, so typing speed and `time_spent` are unchanged in the study.** `app/streaming/page.tsx` has the constant `TYPING_CLOCK` (`"legacy"` default, `"raf"`). With `"legacy"` the page types exactly as before: one character per 10 ms timer tick, then a 10 ms display step.
+- **`"raf"` is built and tested but not enabled until it is calibrated.** It shows floor(active seconds x `CHARS_PER_SECOND`) characters, driven by `requestAnimationFrame` (`lib/typing-clock.ts`). Pause, a blank input, the feedback box and a hidden tab freeze its clock, resume continues from the same place, and a stalled frame counts for at most 100 ms. `prefers-reduced-motion` does not change the speed.
+- **Not calibrated:** `CHARS_PER_SECOND = 100` is the nominal rate of the old loop (one character per 10 ms), **not measured**: no measurement of the old typewriter is stored in the repository, and the old loop's real speed was probably lower. A guard test (`lib/typing-clock-guard.test.ts`) fails if `TYPING_CLOCK` is `"raf"` while `CHARS_PER_SECOND` is still 100. Calibration steps are in `docs/BACKLOG.md`.
+- **Also in this change:** the typed paragraph is a memoised component (`TypedText`), so typing in a blank input does not render it again. It changes no visible text or timing. It is used with both clocks.
+- **Unchanged:** the 200 ms, 500 ms and 1500 ms delays, the pause and resume rules, the logged action names, the `time_spent` calculation, the AI-answer reveal (15 ms per character).
+- Affects study data: **no with the default `"legacy"`**. Switching to `"raf"` after calibration would be a possible small change to `time_spent` values and must be recorded then. Not checked in a browser.

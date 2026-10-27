@@ -11,6 +11,7 @@ import { ModernAIOutputDisplay } from "@/components/streaming/ModernAIOutputDisp
 import { nextToken, isBlankAnswerCorrect } from "@/lib/content";
 import { nextNearBottom, scrollBehaviorFor } from "@/lib/scroll";
 import { shouldTypeOnResume } from "@/lib/streaming-flow";
+import { CHARS_PER_SECOND, charsAllowed, discardUnusedChars, newTypingClock, takeAllowedChars, tickTypingClock, type TypingClock } from "@/lib/typing-clock";
 import { createTimerSet } from "@/lib/timers";
 import { useQuestionContent } from "@/lib/trace/use-question-content";
 // Change AI Thinks
@@ -42,6 +43,17 @@ interface BlankResponse {
 const TYPING_INTERVAL_MS = 10;
 const CHARS_PER_TYPE_INTERVAL = 1;
 const FEEDBACK_DURATION_MS = 1500;
+
+// How the text is typed. "legacy" (the default, what learners have always seen): one character per 10 ms timer
+// tick, whose real speed depends on rendering. "raf": the characters shown follow the active time
+// (requestAnimationFrame) at CHARS_PER_SECOND (lib/typing-clock.ts). Do NOT switch to "raf" until CHARS_PER_SECOND
+// has been set from a measurement of the legacy loop (a guard test fails otherwise).
+const TYPING_CLOCK = "legacy" as "raf" | "legacy";
+
+// The text being typed. Memoised, so a keystroke in the blank input does not render the paragraph again.
+const TypedText = React.memo(function TypedText({ text }: { text: string }) {
+    return <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>;
+});
 
 const markdownComponents = {
     p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-4 leading-relaxed" {...props}>{children}</p>,
@@ -156,6 +168,11 @@ function StreamingPage() {
     // The newest values, for timers that fire later (a closure would hold the values of the render that set it).
     const latestRef = useRef({ isPaused: false, isWaitingForBlankFill: false });
     latestRef.current = { isPaused, isWaitingForBlankFill };
+    // The "raf" typing clock: active time, characters shown so far, and the newest text position.
+    const typingClockRef = useRef<TypingClock>(newTypingClock());
+    const typedCharsRef = useRef(0);
+    const textPositionRef = useRef(0);
+    textPositionRef.current = textPosition;
 
     useEffect(() => {
         return () => {
@@ -192,7 +209,7 @@ function StreamingPage() {
     // --- NEW ROBUST STREAMING LOGIC ---
     useEffect(() => {
         // Condition to run the effect: must be typing and not paused.
-        if (!isTyping || isPaused) {
+        if (TYPING_CLOCK !== "legacy" || !isTyping || isPaused) {
             return;
         }
 
@@ -238,6 +255,66 @@ function StreamingPage() {
 
     }, [isTyping, isPaused, textPosition, aiText]);
 
+
+    // --- TYPING CLOCK ("raf") ---
+    // Each frame shows the characters that the active time allows (lib/typing-clock.ts). The clock only runs while
+    // this effect runs (typing, not paused) and the tab is visible, so pause, a blank, the feedback box and a hidden
+    // tab freeze it, and nothing is caught up afterwards. The stops at a blank, a paragraph break and the end are
+    // the same as in the legacy loop above.
+    useEffect(() => {
+        if (TYPING_CLOCK !== "raf" || !isTyping || isPaused) return;
+        let frameId = 0;
+        let position = textPositionRef.current;
+
+        const freeze = () => {
+            typingClockRef.current = tickTypingClock(typingClockRef.current, performance.now(), false);
+        };
+        const onVisibility = () => {
+            if (document.hidden) freeze();
+        };
+        document.addEventListener("visibilitychange", onVisibility);
+
+        const frame = (now: number) => {
+            typingClockRef.current = tickTypingClock(typingClockRef.current, now, !document.hidden);
+            const allowed = charsAllowed(typingClockRef.current, CHARS_PER_SECOND);
+            const taken = takeAllowedChars(aiText, position, typedCharsRef.current, allowed);
+            position = taken.position;
+            typedCharsRef.current = taken.shown;
+            if (taken.text !== "") {
+                const shown = taken.text;
+                setCurrentParagraph(prev => prev + shown);
+                setDisplayedCurrentParagraph(prev => prev + shown); // shown at once: the clock is the pace
+                setDisplayPosition(prev => prev + shown.length);
+            }
+            setTextPosition(position);
+
+            const stop = taken.stop;
+            if (stop) {
+                if (stop.kind === "end") {
+                    setIsTyping(false);
+                    setIsContentComplete(true);
+                    setIsStreamingSessionActive(false);
+                } else if (stop.kind === "blank") {
+                    setIsTyping(false);
+                    setIsWaitingForBlankFill(true);
+                    setCurrentBlankAnswer(stop.answer);
+                } else {
+                    paragraphEndRef.current = true;
+                    setIsTyping(false);
+                }
+                typingClockRef.current = discardUnusedChars(typingClockRef.current, typedCharsRef.current, CHARS_PER_SECOND);
+                return; // typing has stopped: no next frame
+            }
+            frameId = requestAnimationFrame(frame);
+        };
+        frameId = requestAnimationFrame(frame);
+
+        return () => {
+            cancelAnimationFrame(frameId);
+            document.removeEventListener("visibilitychange", onVisibility);
+            freeze();
+        };
+    }, [isTyping, isPaused, aiText]);
 
     // --- DISPLAY ANIMATION ---
     useEffect(() => {
@@ -345,6 +422,8 @@ function StreamingPage() {
         answerStreamTokenRef.current += 1;
         timers.clearAll();
         paragraphEndRef.current = false;
+        typingClockRef.current = newTypingClock();
+        typedCharsRef.current = 0;
         setIsStreamingAIAnswer(false);
         setIsTyping(false);
         setIsPaused(false);
@@ -667,7 +746,7 @@ function StreamingPage() {
                 <div className="font-sans text-lg mt-6" aria-live="off" aria-busy={isTyping}>
                     {completedContent}
 
-                    {displayedCurrentParagraph && ( <ReactMarkdown components={markdownComponents}>{displayedCurrentParagraph}</ReactMarkdown> )}
+                    {displayedCurrentParagraph && <TypedText text={displayedCurrentParagraph} />}
 
                     {isWaitingForBlankFill && (
                         <ModernBlankInput
