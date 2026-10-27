@@ -7,6 +7,7 @@ describe("readTraceRunConfig", () => {
       setting: "auto",
       provider: "deepseek",
       maxPerHour: 20,
+      reuse: false,
       limits: { minWords: 150, maxWords: 500, firstEventTimeoutMs: 30000, idleTimeoutMs: 30000, maxTotalMs: 180000 },
     });
     expect(TRACE_DEFAULTS).toMatchObject({ minWords: 150, maxWords: 500, maxPerHour: 20, maxTotalMs: 180000 });
@@ -20,6 +21,7 @@ describe("readTraceRunConfig", () => {
         TRACE_MIN_WORDS: "100",
         TRACE_MAX_WORDS: "400",
         TRACE_MAX_PER_HOUR: "5",
+        TRACE_REUSE: "true",
         TRACE_FIRST_EVENT_TIMEOUT_MS: "10000",
         TRACE_IDLE_TIMEOUT_MS: "20000",
         TRACE_TOTAL_TIMEOUT_MS: "90000",
@@ -28,6 +30,7 @@ describe("readTraceRunConfig", () => {
       setting: "steps",
       provider: "mock",
       maxPerHour: 5,
+      reuse: true,
       limits: { minWords: 100, maxWords: 400, firstEventTimeoutMs: 10000, idleTimeoutMs: 20000, maxTotalMs: 90000 },
     });
   });
@@ -69,5 +72,20 @@ describe("readTraceRunConfig", () => {
 
   it("never throws, whatever the environment holds", () => {
     expect(() => readTraceRunConfig({ TRACE_SOURCE: undefined, TRACE_MIN_WORDS: undefined })).not.toThrow();
+  });
+});
+
+describe("TRACE_REUSE", () => {
+  it("is off by default and in the defaults object", () => {
+    expect(readTraceRunConfig({}).reuse).toBe(false);
+    expect(TRACE_DEFAULTS.reuse).toBe(false);
+  });
+
+  it('is on only for the exact value "true" (spaces around it are trimmed)', () => {
+    expect(readTraceRunConfig({ TRACE_REUSE: "true" }).reuse).toBe(true);
+    expect(readTraceRunConfig({ TRACE_REUSE: " true " }).reuse).toBe(true);
+    for (const value of ["", "false", "TRUE", "True", "1", "yes", "on", "tru"]) {
+      expect(readTraceRunConfig({ TRACE_REUSE: value }).reuse, value).toBe(false);
+    }
   });
 });

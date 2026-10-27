@@ -12,6 +12,8 @@ export interface TraceRunConfig {
   limits: TraceRunLimits;
   /** Traces per user per rolling hour. */
   maxPerHour: number;
+  /** Show every learner the newest saved trace of a question instead of generating a new one. Off by default. */
+  reuse: boolean;
 }
 
 export const TRACE_DEFAULTS = {
@@ -20,6 +22,7 @@ export const TRACE_DEFAULTS = {
   minWords: 150,
   maxWords: 500,
   maxPerHour: 20,
+  reuse: false,
   firstEventTimeoutMs: 30_000,
   idleTimeoutMs: 30_000,
   maxTotalMs: 180_000,
@@ -52,6 +55,7 @@ export function readTraceRunConfig(env: Env = process.env): TraceRunConfig {
     setting,
     provider,
     maxPerHour: whole(env.TRACE_MAX_PER_HOUR, 1, 10_000) ?? TRACE_DEFAULTS.maxPerHour,
+    reuse: env.TRACE_REUSE?.trim() === "true", // only the exact value "true" turns it on
     limits: {
       minWords,
       maxWords,

@@ -2,6 +2,9 @@
 
 Follow-ups that are not done yet.
 
+## Blank generator
+- Blanking a variable name inside an assignment (for example "set BLANK(high) = mid - 1") is a weak blank. Tune with the professor's criteria.
+
 ## Live trace integration
 - Run the browser checks for the flag-off and flag-on paths (flag-on with `TRACE_PROVIDER=mock`) before the study.
 

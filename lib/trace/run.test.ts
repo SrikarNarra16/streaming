@@ -62,6 +62,7 @@ function fakeStore(options: { failWith?: unknown } = {}) {
       rows.push(row);
       if (options.failWith !== undefined) throw options.failWith;
     }),
+    findReusableTrace: vi.fn(async () => null),
   };
   return { store, rows };
 }

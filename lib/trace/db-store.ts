@@ -1,10 +1,20 @@
-// Saves one row per trace request in the `traces` table.
+// Saves one row per trace request in the `traces` table, and finds a saved trace to reuse (TRACE_REUSE).
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { traces } from "@/schema";
-import type { TraceStore } from "./run";
+import { toReusableTrace, type TraceStore } from "./run";
 
 export function createDbTraceStore(): TraceStore {
   return {
+    async findReusableTrace(questionId) {
+      const rows = await db
+        .select({ source: traces.source, status: traces.status, finalParagraphs: traces.finalParagraphs, model: traces.model })
+        .from(traces)
+        .where(and(eq(traces.questionId, questionId), eq(traces.status, "ready"), sql`jsonb_array_length(${traces.finalParagraphs}) > 0`))
+        .orderBy(desc(traces.createdAt), desc(traces.id))
+        .limit(1);
+      return rows[0] ? toReusableTrace(rows[0]) : null; // checked again here: never trust the row's shape
+    },
     async saveTrace(row) {
       await db.insert(traces).values({
         userId: row.userId,

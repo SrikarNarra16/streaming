@@ -44,7 +44,7 @@ function spy(config: Partial<MockProviderConfig> & { reasoning?: string; answer?
 
 function setup(over: Partial<TraceRouteDeps> = {}, mocks: { reasoning?: Partial<MockProviderConfig>; steps?: Partial<MockProviderConfig> } = {}) {
   const rows: TraceRow[] = [];
-  const store: TraceStore = { saveTrace: vi.fn(async (row: TraceRow) => void rows.push(row)) };
+  const store: TraceStore = { saveTrace: vi.fn(async (row: TraceRow) => void rows.push(row)), findReusableTrace: vi.fn(async () => null) };
   const reasoning = spy({ reasoning: prose(300, "r"), ...mocks.reasoning });
   const steps = spy({ answer: prose(330, "s"), ...mocks.steps });
   const findQuestion = vi.fn(async (id: number) => (id === 1 ? { id: 1, question: QUESTION } : null));
@@ -268,6 +268,7 @@ describe("a client that goes away", () => {
         await new Promise((resolve) => setTimeout(resolve, 500)); // the reader leaves while this is running
         rows.push(row);
       }),
+      findReusableTrace: async () => null,
     };
     const { deps } = setup({ store: slowStore });
     const res = await handleTraceRequest(post({ questionId: 1 }), deps);

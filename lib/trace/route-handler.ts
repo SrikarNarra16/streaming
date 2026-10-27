@@ -6,7 +6,7 @@
 import { encodeEvent } from "./ndjson";
 import type { TraceRunConfig } from "./config";
 import type { TraceLimiter } from "./limits";
-import { startTraceRun, type TraceStore } from "./run";
+import { lookupReusableTrace, startTraceRun, type ReusableTrace, type TraceStore } from "./run";
 import type { SelectProvidersResult } from "./select-provider";
 
 export interface TraceRouteDeps {
@@ -58,7 +58,11 @@ export async function handleTraceRequest(request: Request, deps: TraceRouteDeps)
   const selected = deps.selectProviders();
   if (!selected.ok) return json({ error: "The AI service is not available." }, 503);
 
-  // 5. limits
+  // 5. TRACE_REUSE (off by default): look for a saved trace first, so that reusing one does not count as a new trace
+  let reused: ReusableTrace | null | undefined;
+  if (deps.config.reuse) reused = await lookupReusableTrace(deps.store, question.id);
+
+  // 6. limits
   const abort = new AbortController();
   const started = startTraceRun(deps.limiter, {
     userId,
@@ -71,13 +75,15 @@ export async function handleTraceRequest(request: Request, deps: TraceRouteDeps)
     limits: deps.config.limits,
     store: deps.store,
     signal: abort.signal,
+    reuse: deps.config.reuse,
+    reused,
   });
   if (!started.ok) {
     const message = started.reason === "busy" ? "A trace is already running." : "Too many requests.";
     return json({ error: message }, 429, { "Retry-After": String(started.retryAfterSeconds) });
   }
 
-  // 6. the stream. When the client goes away the run is aborted, but it still ends and is still saved.
+  // 7. the stream. When the client goes away the run is aborted, but it still ends and is still saved.
   if (request.signal.aborted) abort.abort();
   else request.signal.addEventListener("abort", () => abort.abort(), { once: true });
 

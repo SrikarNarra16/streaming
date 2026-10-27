@@ -67,6 +67,12 @@ Changes made in the typing and scrolling task.
 - **Affects study data:** **yes, when the flag is on** (different text and different blanks than the stored question). It is a draft: the blank rules are first guesses to be tuned with the professor's criteria.
 - Browser checks for the flag-on and flag-off paths have not been run yet; run them before enabling the flag.
 
+### b2a94b1 (2026-10-27): segmenter fences code, lead-in merge, blank generator tweaks
+
+- **Segmenter** (`lib/segment.ts`): code that a trace prints without a ``` fence (an indented run, or two or more flush-left lines that look like code) is now wrapped in a fence, so the page's markdown renderer keeps the indentation. A paragraph under 8 words that ends in a colon ("Here is the code:") is merged with the paragraph after it. Prose is not fenced.
+- **Blank generator** (`lib/blanks/propose.ts`): a number with a leading minus such as `-1` is no longer held back as spacing-sensitive, and `O(1)` is never proposed as a blank.
+- Affects study data: **only with `NEXT_PUBLIC_LIVE_TRACE=true`** (the segmenter and generator only shape live traces). With the flag off nothing changes. Not checked in a browser.
+
 ### Committed, no effect on participants or logged data
 `0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (not connected to the app).
 - `4ed0a5e` (2026-10-26): trace route `POST /api/trace`, source policy, limits, and a `traces` table in `schema.ts` (written only by that route, which the page does not call with the flag off; the table has to be created by you with the database command before the route can save traces).
@@ -74,9 +80,10 @@ Changes made in the typing and scrolling task.
 - `375f508` (2026-10-26): the first draft of the blank generator (`lib/blanks`) and its preview script. Not used by the page.
 - `44f72db` (2026-10-26): blank generator tuning (trace-wide uniqueness, generic-term and give-away filters, spacing hold-back, hand-written fixtures). Not used by the page with the flag off.
 
+## TRACE_REUSE: show every learner the same saved trace (status: awaiting approval, no commit hash yet)
 
-## Segmenter fences code, lead-in merge, blank generator tweaks (status: awaiting approval, no commit hash yet)
-
-- **Segmenter** (`lib/segment.ts`): code that a trace prints without a ``` fence (an indented run, or two or more flush-left lines that look like code) is now wrapped in a fence, so the page's markdown renderer keeps the indentation. A paragraph under 8 words that ends in a colon ("Here is the code:") is merged with the paragraph after it. Prose is not fenced.
-- **Blank generator** (`lib/blanks/propose.ts`): a number with a leading minus such as `-1` is no longer held back as spacing-sensitive, and `O(1)` is never proposed as a blank.
-- Affects study data: **only with `NEXT_PUBLIC_LIVE_TRACE=true`** (the segmenter and generator only shape live traces). With the flag off nothing changes. Not checked in a browser.
+- **Setting:** `TRACE_REUSE` (server side, in `.env.local`). It is on only when it is exactly `true`. It is **off by default**.
+- **Off:** nothing changes. A new trace is generated on every request, as before, and no saved trace is looked up.
+- **On:** before asking the AI, the server looks for the newest saved trace of that question with status `ready` and at least one paragraph. If it finds one, it sends that trace again: **all learners see the same saved trace for a question**. There is no AI call, no new row is saved, and it does not count toward `TRACE_MAX_PER_HOUR`. If none exists, one is generated and saved as today, and later requests reuse it. Saved rows that failed, were cancelled or are empty are never reused, and a reused trace passes the same checks as a generated one.
+- **Not changed:** the database schema. The newest `ready` row is simply the first one saved or the latest generated, so a bad trace stays in use until a newer `ready` one is saved (there is no "retire this trace" switch; that would need a schema change or a manual row edit).
+- Affects study data: **no unless set**. With it on, the live trace (flag `NEXT_PUBLIC_LIVE_TRACE=true`) is identical for every learner of a question, which makes blanks and text comparable. Not checked in a browser.

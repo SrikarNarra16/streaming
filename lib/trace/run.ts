@@ -14,7 +14,7 @@
 import { cleanTrace } from "../clean-trace";
 import { segmentTrace } from "../segment";
 import { consumeFromProvider, type ConsumeOptions, type ConsumeResult } from "./consume";
-import { traceError, type TraceEvent, type TraceSource, type TraceUsage } from "./events";
+import { isTraceEvent, TRACE_SOURCES, traceError, type TraceEvent, type TraceSource, type TraceUsage } from "./events";
 import type { TraceLimiter } from "./limits";
 import { decideTraceSource, type TraceSetting } from "./policy";
 import type { TraceProvider } from "./provider";
@@ -52,8 +52,17 @@ export interface TraceRow {
   totalMs: number | null;
 }
 
+/** A saved trace that may be shown again (TRACE_REUSE). */
+export interface ReusableTrace {
+  source: TraceSource;
+  paragraphs: string[];
+  model: string;
+}
+
 export interface TraceStore {
   saveTrace(row: TraceRow): Promise<void>;
+  /** The newest saved trace of this question with status "ready" and at least one paragraph, or null. */
+  findReusableTrace(questionId: number): Promise<ReusableTrace | null>;
 }
 
 export interface RunTraceInput {
@@ -70,6 +79,10 @@ export interface RunTraceInput {
   store: TraceStore;
   /** Aborted when the client goes away. The run then ends as "cancelled" and is still saved. */
   signal: AbortSignal;
+  /** TRACE_REUSE: show the newest saved trace of the question, if there is one, instead of generating. Default off. */
+  reuse?: boolean;
+  /** The result of an earlier lookup (null: looked up, none found). When undefined and reuse is on, the run looks it up. */
+  reused?: ReusableTrace | null;
 }
 
 const countWords = (text: string) => (text.trim() === "" ? 0 : text.trim().split(/\s+/).length);
@@ -91,12 +104,53 @@ function trimAtParagraphBoundary(text: string, maxWords: number): string[] {
   return kept;
 }
 
+// The checks every trace must pass before it is sent to the browser, generated or reused: at least one paragraph,
+// every paragraph is a non-empty string that the page cannot misread ("$$" splits paragraphs, "BLANK(" is a blank),
+// and the event has the protocol's shape. The word count is always recomputed from the paragraphs.
+export function readyEvents(source: TraceSource, paragraphs: unknown, model: string): TraceEvent[] | null {
+  if (!Array.isArray(paragraphs) || paragraphs.length === 0) return null;
+  if (!paragraphs.every((p) => typeof p === "string" && p.trim() !== "" && !p.includes("$$") && !/blank\(/i.test(p))) return null;
+  const ready: TraceEvent = { type: "trace_ready", source, paragraphs: paragraphs as string[], words: sumWords(paragraphs as string[]), model };
+  const done: TraceEvent = { type: "done", model };
+  return isTraceEvent(ready) && isTraceEvent(done) ? [ready, done] : null;
+}
+
+/** Turns a saved row into a reusable trace, or null for a row that must never be reused (not ready, empty, bad shape). */
+export function toReusableTrace(row: { source: string; status: string; finalParagraphs: unknown; model: string }): ReusableTrace | null {
+  if (row.status !== "ready") return null;
+  if (!(TRACE_SOURCES as readonly string[]).includes(row.source)) return null;
+  if (!Array.isArray(row.finalParagraphs) || row.finalParagraphs.length === 0) return null;
+  if (!row.finalParagraphs.every((p) => typeof p === "string" && p.trim() !== "")) return null;
+  return { source: row.source as TraceSource, paragraphs: row.finalParagraphs as string[], model: row.model };
+}
+
+/** The store lookup that never throws: a failing lookup counts as "nothing saved". */
+export async function lookupReusableTrace(store: TraceStore, questionId: number): Promise<ReusableTrace | null> {
+  try {
+    return await store.findReusableTrace(questionId);
+  } catch (error) {
+    logFailure("could not look up a saved trace", error);
+    return null;
+  }
+}
+
 function logFailure(what: string, error: unknown): void {
   const raw = error instanceof Error ? error.name : typeof error;
   console.error(`[trace] ${what}:`, /^[A-Za-z0-9_]{1,60}$/.test(raw) ? raw : "Error"); // the name only, never the message
 }
 
 export async function* runTraceForUser(input: RunTraceInput): AsyncGenerator<TraceEvent> {
+  // ---- 0. reuse (only when TRACE_REUSE is on): a saved trace is shown with no provider call and no new row ----
+  if (input.reuse) {
+    const saved = input.reused !== undefined ? input.reused : await lookupReusableTrace(input.store, input.questionId);
+    const events = saved ? readyEvents(saved.source, saved.paragraphs, saved.model) : null; // the same checks as a generated trace
+    if (events) {
+      yield* events;
+      return;
+    }
+    // nothing saved, or a saved row that fails the checks: generate as usual
+  }
+
   const { limits, signal } = input;
   const started = Date.now();
   const warnings = new Set<string>();
@@ -247,13 +301,17 @@ export async function* runTraceForUser(input: RunTraceInput): AsyncGenerator<Tra
       yield failed(); // nothing usable
       return;
     }
+    const ready = readyEvents(finalSource, paragraphs, input.model); // the same checks as for a reused trace
+    if (!ready) {
+      yield failed();
+      return;
+    }
     row.source = finalSource;
     row.finalParagraphs = paragraphs;
     row.finalWords = sumWords(paragraphs);
     row.status = "ready";
     row.errorCode = null;
-    yield { type: "trace_ready", source: finalSource, paragraphs, words: row.finalWords, model: input.model };
-    yield { type: "done", model: input.model };
+    yield* ready;
   } catch (error) {
     logFailure("run failed", error);
     if (row.status !== "ready") yield failed();
@@ -280,6 +338,11 @@ export type StartTraceRunResult =
  * in case the events were never read.
  */
 export function startTraceRun(limiter: TraceLimiter, input: RunTraceInput): StartTraceRunResult {
+  // A reused trace costs nothing (no provider call), so it takes no slot and does not count toward the hourly
+  // limit. Only when it will really be reused: a saved row that fails the checks is generated again and counts.
+  if (input.reuse && input.reused && readyEvents(input.reused.source, input.reused.paragraphs, input.reused.model)) {
+    return { ok: true, events: runTraceForUser(input), release: () => {} };
+  }
   const slot = limiter.tryStart(input.userId);
   if (!slot.ok) return slot;
   const release = slot.release;
