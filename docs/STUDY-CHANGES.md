@@ -87,3 +87,9 @@ Changes made in the typing and scrolling task.
 - **On:** before asking the AI, the server looks for the newest saved trace of that question with status `ready` and at least one paragraph. If it finds one, it sends that trace again: **all learners see the same saved trace for a question**. There is no AI call, no new row is saved, and it does not count toward `TRACE_MAX_PER_HOUR`. If none exists, one is generated and saved as today, and later requests reuse it. Saved rows that failed, were cancelled or are empty are never reused, and a reused trace passes the same checks as a generated one.
 - **Not changed:** the database schema. The newest `ready` row is simply the first one saved or the latest generated, so a bad trace stays in use until a newer `ready` one is saved (there is no "retire this trace" switch; that would need a schema change or a manual row edit).
 - Affects study data: **no unless set**. With it on, the live trace (flag `NEXT_PUBLIC_LIVE_TRACE=true`) is identical for every learner of a question, which makes blanks and text comparable. Not checked in a browser.
+
+## Trace report script (status: awaiting approval, no commit hash yet)
+
+- A new read-only tool, `npx pnpm@8 trace:report -- --yes` (`scripts/trace-report.ts`, with the number crunching in `lib/trace/report.ts`). It summarises the `traces` table: counts, word counts, error codes, timings and ready traces per question. It only runs SELECT queries in a read-only transaction, selects no learner ids and no trace text, and refuses to connect without `--yes`.
+- Affects study data: **no**. It is not part of the app and writes nothing.
+

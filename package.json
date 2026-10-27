@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "db:hash-passwords": "tsx scripts/hash-passwords.ts",
+    "trace:report": "tsx scripts/trace-report.ts",
     "db:reset": "node scripts/reset-db.js"
   },
   "dependencies": {

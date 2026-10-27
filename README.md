@@ -78,11 +78,16 @@ Prerequisites: Node.js 20+ (tested here on v26), PostgreSQL, a DeepSeek API key.
 | `npx pnpm@8 db:seed` | Inserts the sample questions (idempotent) |
 | `npx pnpm@8 db:hash-passwords -- --yes` | Replaces any plain-text passwords with bcrypt hashes. Prints the database host and name first, refuses without `--yes`, never prints passwords or hashes, and skips rows that are already hashed (safe to run twice). |
 | `npx pnpm@8 db:reset -- --yes` | **Drops** `users`, `questions` and `logs` and recreates them empty from the schema. Refuses to run without `--yes` and prints the target host and database name (never the password) first. |
+| `npx pnpm@8 trace:report -- --yes` | Read-only summary of the `traces` table (see below). Prints the database host and name first and refuses without `--yes`. |
 | `npx pnpm@8 db:generate` | `drizzle-kit generate` |
 | `npx pnpm@8 db:studio` | Opens Drizzle Studio |
 | `npx pnpm@8 build` / `start` / `lint` | Next.js build, start and lint |
 
 There is no `db:migrate` script. After `db:reset`, run `db:seed` to get the sample questions back.
+
+### Trace report
+
+`npx pnpm@8 trace:report -- --yes` prints a summary of the live-trace rows: counts by status, source, decision reason and model, the minimum, median and maximum word count of ready traces, the share of ready traces within the default `TRACE_MIN_WORDS` to `TRACE_MAX_WORDS` range, error codes, average and maximum request time, the number of rows with warnings, how many ready traces each question has, and the five newest rows (ids, question id, source and status). It only reads (SELECT inside a read-only transaction) and selects no learner ids and no trace text. It loads `.env.local` for `DATABASE_URL`, so run it yourself.
 
 ## Database schema
 
