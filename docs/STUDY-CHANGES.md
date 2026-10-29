@@ -59,7 +59,7 @@ Changes made in the typing and scrolling task.
 
 ### 57c9de4 (2026-10-27): live trace on the learner page, behind a flag
 
-- **Flag:** `NEXT_PUBLIC_LIVE_TRACE`. It is on only when it is exactly `true`. It is **off by default** (unset, empty or any other value). It is read when the app is built or started, so changing it needs a restart.
+- **Flag:** `NEXT_PUBLIC_LIVE_TRACE`. At this commit it was on only when exactly `true` and **off by default**; the default was later changed to on (see the entry "Live trace on by default" below). It is fixed into the build, so changing it needs a rebuild.
 - **Flag off:** the page uses the stored question content exactly as before. The new code makes no request, starts no timer and adds no log action. Affects study data: **no**.
 - **Flag on:** when the current question is known (before the learner presses Start), the page asks `/api/trace` for a live thinking trace of that question. While it is on its way the button shows the existing gray disabled "Loading..." state. When it is ready, the learner reads the live trace instead of the stored content, with fill-in-the-blank markers that the draft blank generator (`lib/blanks`) placed in it. Start, pause, resume, reset, the understand buttons, blank answers and the AI answer work as they do on stored content, because the same parser (`lib/content.ts`) reads it.
 - **Fixed blanks per question:** the generator is given a fixed seed made from the question id (`question-<id>`), so the same trace gives every learner the same blanks. Different traces of the same question (each request generates a new one) can still differ.
@@ -71,7 +71,7 @@ Changes made in the typing and scrolling task.
 
 - **Segmenter** (`lib/segment.ts`): code that a trace prints without a ``` fence (an indented run, or two or more flush-left lines that look like code) is now wrapped in a fence, so the page's markdown renderer keeps the indentation. A paragraph under 8 words that ends in a colon ("Here is the code:") is merged with the paragraph after it. Prose is not fenced.
 - **Blank generator** (`lib/blanks/propose.ts`): a number with a leading minus such as `-1` is no longer held back as spacing-sensitive, and `O(1)` is never proposed as a blank.
-- Affects study data: **only with `NEXT_PUBLIC_LIVE_TRACE=true`** (the segmenter and generator only shape live traces). With the flag off nothing changes. Not checked in a browser.
+- Affects study data: **only when the live trace is on** (the segmenter and generator only shape live traces; the live trace is on by default since the entry "Live trace on by default" below). Not checked in a browser.
 
 ### Committed, no effect on participants or logged data
 `0b27d19` (types), `e8ace9f` (CLAUDE.md), `9f0d101` and `2545791` (trace measurement script), `ea9af57`, `2c432f1`, `07ffd51` (README), `e137cc3` (single pnpm lockfile, same resolved versions), `c4940d9` (vitest), `2d2f4a0` (log analysis script: anonymous labels, no emails; analysis only), and the trace pipeline libraries `2f1e901`, `ef57f92`, `dc9eede`, `2304c41`, `7c3de77` (at that time not connected to the app; the learner page uses them only when the live-trace flag is on, see 57c9de4).
@@ -86,7 +86,7 @@ Changes made in the typing and scrolling task.
 - **Off:** nothing changes. A new trace is generated on every request, as before, and no saved trace is looked up.
 - **On:** before asking the AI, the server looks for the newest saved trace of that question with status `ready` and at least one paragraph. If it finds one, it sends that trace again: **all learners see the same saved trace for a question**. There is no AI call, no new row is saved, and it does not count toward `TRACE_MAX_PER_HOUR`. If none exists, one is generated and saved as today, and later requests reuse it. Saved rows that failed, were cancelled or are empty are never reused, and a reused trace passes the same checks as a generated one.
 - **Not changed:** the database schema. The newest `ready` row is simply the first one saved or the latest generated, so a bad trace stays in use until a newer `ready` one is saved (there is no "retire this trace" switch; that would need a schema change or a manual row edit).
-- Affects study data: **no unless set**. With it on, the live trace (flag `NEXT_PUBLIC_LIVE_TRACE=true`) is identical for every learner of a question, which makes blanks and text comparable. Not checked in a browser.
+- Affects study data: **no unless set**. With it on, the live trace (on by default, see below) is identical for every learner of a question, which makes blanks and text comparable. Not checked in a browser.
 
 ## Trace report script (status: awaiting approval, no commit hash yet)
 
@@ -108,3 +108,12 @@ Changes made in the typing and scrolling task.
 - **Also in this change:** the typed paragraph is a memoised component (`TypedText`), so typing in a blank input does not render it again. It changes no visible text or timing. It is used with both clocks.
 - **Unchanged:** the 200 ms, 500 ms and 1500 ms delays, the pause and resume rules, the logged action names, the `time_spent` calculation, the AI-answer reveal (15 ms per character).
 - Affects study data: **no with the default `"legacy"`**. Switching to `"raf"` after calibration would be a possible small change to `time_spent` values and must be recorded then. Not checked in a browser.
+
+## Live trace on by default (status: awaiting approval, no commit hash yet)
+
+- **What changed:** `NEXT_PUBLIC_LIVE_TRACE` (`lib/trace/flag.ts`) is now **on unless it is exactly `"false"`**. Unset, `"true"`, empty or any other value mean on. Before, it was off unless exactly `"true"`.
+- **The study now uses the live trace unless the flag is set to `"false"`** when the app is built (it is fixed into the build). Every learner gets a live trace of the question, with blanks placed by the draft blank generator, instead of the stored question content. With `TRACE_REUSE=true` they all get the same saved trace per question; without it each request generates a new trace and costs a paid model call.
+- **What a learner sees:** the gray, disabled "Loading..." button while the trace is on its way, then "Start" and the live trace. **On fallback** (an error, no key configured, a limit reached, a trace that cannot be shown safely, or no trace after 45 seconds) the learner sees the stored question content from the database exactly as before: no error message, no new log action, and no trace text is logged. A trace that arrives after the 45 seconds is ignored.
+- **To turn it off:** set `NEXT_PUBLIC_LIVE_TRACE=false` and rebuild and restart.
+- Affects study data: **yes.** The text, the blanks and therefore the typing time, the blank answers and `time_spent` come from the live trace and not from the stored question. Participants no longer all see identical text unless `TRACE_REUSE=true`. The blank rules are a draft. Not checked in a browser.
+

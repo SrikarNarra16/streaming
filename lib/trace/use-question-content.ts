@@ -1,8 +1,9 @@
 "use client";
 
 // The content of the current question for the learner page: { content, source, loading }.
-//  - Flag off (the default): returns the stored content straight away. Nothing is fetched and nothing is set.
-//  - Flag on: starts the live trace when the question is known (before the learner presses Start), shows it with
+//  - Flag off (NEXT_PUBLIC_LIVE_TRACE=false): returns the stored content straight away. Nothing is fetched and
+//    nothing is set.
+//  - Flag on (the default): starts the live trace when the question is known (before the learner presses Start), shows it with
 //    the draft blanks when it is ready, and uses the stored content on an error or when the wait runs out.
 // The trace is started from a timer that the effect cleans up, so React strict mode (mount, unmount, mount)
 // sends one request, not two. Switching tabs or pressing Reset does not change the question id, so nothing restarts.
@@ -21,7 +22,7 @@ export interface QuestionLike {
 }
 
 export interface UseQuestionContentOptions {
-  /** Defaults to the NEXT_PUBLIC_LIVE_TRACE flag. For tests. */
+  /** Defaults to the NEXT_PUBLIC_LIVE_TRACE flag (on unless it is "false"). For tests. */
   enabled?: boolean;
   fetchImpl?: typeof fetch;
   waitMs?: number;

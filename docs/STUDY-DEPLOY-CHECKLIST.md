@@ -69,24 +69,27 @@ The script loads `.env.local`, so Claude Code never runs it. A `DATABASE_URL` al
 | `TRACE_MAX_PER_HOUR` | `20` | Generated traces per user per hour (counted in memory, per server process). |
 | `TRACE_FIRST_EVENT_TIMEOUT_MS` / `TRACE_IDLE_TIMEOUT_MS` / `TRACE_TOTAL_TIMEOUT_MS` | `30000` / `30000` / `180000` | Waiting limits for each AI call. |
 
-**Check:** the chat still answers; with the flag still off, nothing about the learner page changes.
+**Check:** the chat still answers. Remember that the live trace is on by default (step 6): without a working key learners fall back to the stored questions.
 
-## 6. Keep NEXT_PUBLIC_LIVE_TRACE unset (You)
+## 6. Decide NEXT_PUBLIC_LIVE_TRACE before you build (You)
 
-It is off unless it is exactly `true`. Leave it **unset** until the professor approves the live trace and the blank rules (they are a draft). It is read when the app is built, so changing it later needs a rebuild.
+The live trace is **on by default**: it is on unless `NEXT_PUBLIC_LIVE_TRACE` is exactly `false`. With it on, every learner request for a question can call the paid model (limits in step 5). It is fixed into the build, so changing it needs a rebuild.
 
-**Check:** with the flag unset, the browser's network tab shows no request to `/api/trace` (step 7b).
+- To use the live trace in the study: leave it unset (or `true`) and build. The blank rules are a draft, so get the professor's approval first.
+- To keep the study on the stored questions: set `NEXT_PUBLIC_LIVE_TRACE=false` **before** `next build`.
+
+**Check:** with `false`, the browser's network tab shows no request to `/api/trace` (step 7b). With it on, there is one `POST /api/trace` per question.
 
 ## 7. Browser checks (You; Claude Code can write down what you see)
 
 Run them on the restored copy with `node_modules/.bin/next dev`, **not** on the real study database. Use `TRACE_PROVIDER=mock` for the flag-on checks, so no key is used. Not run yet.
 
 a. **Login and logout.** Log in, reload `/streaming`, log out. Expected: you land on the login page after logout and cannot open `/streaming` until you log in again.
-b. **Flag off** (variable unset). Open `/streaming`, press Start and finish one question. Expected: the button says "Start" at once, and the network tab shows **no** `/api/trace` request.
+b. **Flag off** (`NEXT_PUBLIC_LIVE_TRACE=false`, rebuild). Open `/streaming`, press Start and finish one question. Expected: the button says "Start" at once, and the network tab shows **no** `/api/trace` request.
 c. **Logs for every action.** Press Start, Pause, Resume, Reset, "Yes, continue", "I don't understand", answer a blank, press Ok on the AI answer, then Logout. Expected: one `logs` row for each of the nine actions (`start_button_click`, `pause_button_click`, `resume_button_click`, `reset_button_click`, `understand_button_click`, `dont_understand_button_click`, `blank_answer_submit`, `ok_ai_output_button_click`, `logout_button_click`), and no log row from moving to the next question.
-d. **Flag on, mock provider** (`NEXT_PUBLIC_LIVE_TRACE=true`, `TRACE_PROVIDER=mock`, restart). Expected: "Loading..." (gray, disabled) for a moment, then "Start"; **one** `POST /api/trace` per question (also in strict mode); the trace types out with some blanks; after **Reset** and Start the text and blanks are **identical** and no new request is made.
-e. **Error fallback.** With the flag on and the provider unavailable (for example `TRACE_PROVIDER=deepseek` and no key set on the copy), reload. Expected: the stored question text is shown, no error message, and no new log action.
-f. **Animation checks (flag off is enough).** Scroll up while text is typing: the page must not jump back down. When a blank appears its input must be focused without the page scrolling. With the operating system's "reduce motion" on: no smooth scrolling or hover scaling.
+d. **Flag on, mock provider** (`NEXT_PUBLIC_LIVE_TRACE` unset or `true`, `TRACE_PROVIDER=mock`, restart). Expected: "Loading..." (gray, disabled) for a moment, then "Start"; **one** `POST /api/trace` per question (also in strict mode); the trace types out with some blanks; after **Reset** and Start the text and blanks are **identical** and no new request is made.
+e. **Error fallback.** With the flag on and the provider unavailable (for example `TRACE_PROVIDER=deepseek` and no `DEEPSEEK_API_KEY` set on the copy), reload. Expected: "Loading..." for well under a second, then the stored question text, no error message, and no new log action.
+f. **Animation checks (any flag value).** Scroll up while text is typing: the page must not jump back down. When a blank appears its input must be focused without the page scrolling. With the operating system's "reduce motion" on: no smooth scrolling or hover scaling.
 
 **Check:** every "Expected" above is seen. Write down anything else you notice.
 
@@ -113,8 +116,8 @@ Older versions wrote the email address into the `details` of the `login_attempt`
 
 ## 10. Rollback (You)
 
-- **Turn the live trace off quickly:** unset `NEXT_PUBLIC_LIVE_TRACE` and **rebuild and restart** (it is fixed into the build). Or redeploy the previous build. Learners then see the stored questions again, exactly as before. Nothing else needs to change.
-- **Quick server-side off switch:** removing `DEEPSEEK_API_KEY` (then restart) makes every trace fail, so the page falls back to the stored text, but it also stops the doubt-chat. Unsetting `NEXT_PUBLIC_LIVE_TRACE` needs a rebuild and restart. Use the key switch only as an emergency.
+- **Turn the live trace off quickly:** set `NEXT_PUBLIC_LIVE_TRACE=false` (unsetting it is **not** enough: unset means on) and **rebuild and restart** (it is fixed into the build). Or redeploy the previous build. Learners then see the stored questions again, exactly as before. Nothing else needs to change.
+- **Quick server-side off switch:** removing `DEEPSEEK_API_KEY` (then restart) makes every trace fail, so the page falls back to the stored text, but it also stops the doubt-chat. Setting `NEXT_PUBLIC_LIVE_TRACE=false` needs a rebuild and restart. Use the key switch only as an emergency.
 - `TRACE_REUSE`: remove it or set it to anything but `true`, restart. Saved traces stay in the table and are ignored.
-- **Database:** the `traces` table is only written by the trace route and can stay unused. Nothing in the app needs it with the flag off. To undo hashed passwords or any bigger mistake, restore the dump from step 1 into a fresh database (`pg_restore`) and point `DATABASE_URL` at it, after checking it as in step 1.
+- **Database:** the `traces` table is only written by the trace route and can stay unused. Nothing in the app needs it with the flag set to `false`. To undo hashed passwords or any bigger mistake, restore the dump from step 1 into a fresh database (`pg_restore`) and point `DATABASE_URL` at it, after checking it as in step 1.
 - Keep the step 1 dump until the study is over.

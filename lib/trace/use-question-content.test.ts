@@ -28,10 +28,14 @@ describe("useQuestionContent, flag off", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("is off when the environment variable is not set (the default)", () => {
-    delete process.env.NEXT_PUBLIC_LIVE_TRACE;
+  it('is off when NEXT_PUBLIC_LIVE_TRACE is "false"', () => {
+    process.env.NEXT_PUBLIC_LIVE_TRACE = "false";
     const fetchImpl = vi.fn();
-    expect(render(QUESTION, { fetchImpl: fetchImpl as unknown as typeof fetch })).toEqual({ content: QUESTION.content, source: "stored", loading: false });
+    try {
+      expect(render(QUESTION, { fetchImpl: fetchImpl as unknown as typeof fetch })).toEqual({ content: QUESTION.content, source: "stored", loading: false });
+    } finally {
+      delete process.env.NEXT_PUBLIC_LIVE_TRACE;
+    }
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

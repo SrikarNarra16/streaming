@@ -110,7 +110,7 @@ function StreamingPage() {
     const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
 
-    // The stored content, or (only with NEXT_PUBLIC_LIVE_TRACE=true) the live trace with draft blanks.
+    // The live trace with draft blanks (on unless NEXT_PUBLIC_LIVE_TRACE=false), or the stored content as a fallback.
     const { content: aiText, loading: isContentLoading } = useQuestionContent(currentQuestion);
 
     // Core streaming state
